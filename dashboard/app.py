@@ -940,7 +940,7 @@ def main():
                                      histories, title_kr_map)
     # iframe 높이를 콘텐츠에 맞춤 (내부 스크롤 없이 페이지 스크롤만 사용)
     row_count = len(df)
-    iframe_height = 60 + row_count * 82  # 헤더 + 행당 높이
+    iframe_height = 80 + row_count * 95  # 헤더 + 행당 높이 (여유 포함)
     components.html(table_html, height=iframe_height, scrolling=False)
 
     # 푸터
