@@ -2,11 +2,30 @@
 메챠코믹 (めちゃコミック) 크롤러
 
 특징:
-- CSR 방식 (Playwright 필수)
-- 페이지네이션 3페이지 (약 50개 작품)
-- IP 제한 없음 (한국에서도 테스트 가능)
+- CSR 방식 (Playwright 필수, Next.js + Tailwind CSS)
+- 페이지네이션 3페이지 (각 20개, 총 60개 중 상위 50개)
+- URL 기반 페이지네이션: ?page=N
+- IP 제한 없음 (한국에서도 접근 가능)
+
+DOM 구조 (2026년 Tailwind CSS 리뉴얼 버전):
+<ul class="grid grid-cols-1 lg:grid-cols-2">
+  <li class="px-2 ...">
+    <div class="flex gap-2.5 ...">
+      <div>  <!-- 이미지 영역 -->
+        <a href="/books/{id}"><img alt="제목" ...></a>
+      </div>
+      <div class="flex flex-1 flex-col justify-between">  <!-- 정보 영역 -->
+        <span class="align-middle text-[16px] font-bold">1位</span>
+        <a href="/books/{id}" class="font-bold text-link ...">제목</a>
+        <div class="text-[12px] ...">작가명</div>
+        <span class="inline-flex items-center ...">장르태그</span>
+      </div>
+    </div>
+  </li>
+</ul>
 """
 
+import re
 from typing import List, Dict, Any
 from playwright.async_api import Browser, Page
 
@@ -25,78 +44,41 @@ async def crawl(browser: Browser) -> List[Dict[str, Any]]:
     rankings = []
 
     try:
-        # 3페이지 순회 (각 페이지 약 17개 작품)
+        # 3페이지 순회 (각 페이지 20개 작품)
         for page_num in range(1, 4):
-            url = f'https://mechacomic.jp/sales_rankings/current?page={page_num}'
+            if page_num == 1:
+                url = 'https://mechacomic.jp/sales_rankings/current'
+            else:
+                url = f'https://mechacomic.jp/sales_rankings/current?page={page_num}'
+
             print(f"    페이지 {page_num} 접속 중...")
 
-            await page.goto(url, wait_until='networkidle', timeout=30000)
+            await page.goto(url, wait_until='domcontentloaded', timeout=30000)
 
-            # JavaScript 렌더링 대기
-            await page.wait_for_selector('.ranking-item, .rank-item, article', timeout=10000)
+            # JavaScript 렌더링 대기: 랭킹 그리드가 나타날 때까지
+            try:
+                await page.wait_for_selector(
+                    'ul.grid.grid-cols-1 > li',
+                    timeout=15000
+                )
+            except Exception:
+                # Selector 대기 실패 시 추가 대기
+                await page.wait_for_timeout(3000)
 
-            # 작품 요소 추출
-            # 주의: 실제 셀렉터는 페이지 구조에 따라 조정 필요
-            items = await page.query_selector_all('.ranking-item, .rank-item, article')
+            # 추가 렌더링 안정화 대기
+            await page.wait_for_timeout(1500)
+
+            # 작품 요소 추출: ul.grid.grid-cols-1 > li
+            items = await page.query_selector_all('ul.grid.grid-cols-1 > li')
+            print(f"    페이지 {page_num}: {len(items)}개 요소 발견")
 
             for item in items:
                 try:
-                    # 순위 추출 ("N位" 텍스트 찾기)
-                    rank_text = await item.inner_text()
-                    rank = None
-
-                    # "N位" 패턴 찾기
-                    if '位' in rank_text:
-                        for line in rank_text.split('\n'):
-                            if '位' in line:
-                                try:
-                                    rank = int(line.replace('位', '').strip())
-                                    break
-                                except ValueError:
-                                    continue
-
-                    if not rank:
-                        continue  # 순위 없으면 스킵
-
-                    # 제목 추출
-                    title_elem = await item.query_selector('.title, .work-title, h3, h2')
-                    title = await title_elem.inner_text() if title_elem else ""
-
-                    if not title:
-                        # 텍스트에서 제목 추출 (첫 번째 긴 줄)
-                        lines = rank_text.split('\n')
-                        for line in lines:
-                            if len(line) > 3 and '位' not in line:
-                                title = line.strip()
-                                break
-
-                    # URL 추출
-                    link_elem = await item.query_selector('a')
-                    url_path = await link_elem.get_attribute('href') if link_elem else ""
-                    full_url = ""
-                    if url_path:
-                        if url_path.startswith('http'):
-                            full_url = url_path
-                        else:
-                            full_url = f"https://mechacomic.jp{url_path}"
-
-                    # 장르 추출 (텍스트에서 키워드 매칭)
-                    genre = extract_genre_from_text(rank_text)
-
-                    # 썸네일 (선택사항)
-                    img_elem = await item.query_selector('img')
-                    thumbnail = await img_elem.get_attribute('src') if img_elem else ""
-
-                    rankings.append({
-                        'rank': rank,
-                        'title': title.strip(),
-                        'genre': genre,
-                        'url': full_url,
-                        'thumbnail': thumbnail
-                    })
-
+                    parsed = await _parse_ranking_item(item)
+                    if parsed:
+                        rankings.append(parsed)
                 except Exception as e:
-                    print(f"    ⚠️  개별 작품 파싱 실패: {e}")
+                    print(f"    개별 작품 파싱 실패: {e}")
                     continue
 
         # 중복 제거 및 순위 정렬
@@ -112,39 +94,100 @@ async def crawl(browser: Browser) -> List[Dict[str, Any]]:
         # 상위 50개만
         result = unique_rankings[:50]
 
-        print(f"    ✅ 메챠코믹: {len(result)}개 작품 추출")
+        print(f"    메챠코믹: {len(result)}개 작품 추출")
         return result
 
     except Exception as e:
-        print(f"    ❌ 메챠코믹 크롤링 실패: {e}")
+        print(f"    메챠코믹 크롤링 실패: {e}")
         raise
 
     finally:
         await page.close()
 
 
-def extract_genre_from_text(text: str) -> str:
+async def _parse_ranking_item(item) -> Dict[str, Any]:
     """
-    텍스트에서 장르 키워드 추출
+    개별 랭킹 아이템 파싱
 
     Args:
-        text: 작품 정보 텍스트
+        item: Playwright ElementHandle (li 요소)
 
     Returns:
-        장르 (없으면 빈 문자열)
+        {'rank': N, 'title': '...', 'genre': '...', 'url': '...', 'thumbnail': '...'} or None
     """
-    # 일본어 장르 키워드
-    genres = [
-        'ファンタジー', '恋愛', 'アクション', 'ドラマ', 'ホラー', 'ミステリー',
-        'コメディ', 'サスペンス', 'SF', '学園', 'スポーツ', 'グルメ',
-        '日常', 'BL', 'TL', '異世界', '転生', '復讐', 'バトル'
-    ]
+    # 1. 순위 추출: <span class="align-middle text-[16px] font-bold">N位</span>
+    rank = None
+    rank_spans = await item.query_selector_all('span')
+    for span in rank_spans:
+        text = (await span.inner_text()).strip()
+        match = re.match(r'^(\d+)位$', text)
+        if match:
+            rank = int(match.group(1))
+            break
 
-    for genre in genres:
-        if genre in text:
-            return genre
+    if rank is None:
+        return None
 
-    return ""
+    # 2. 제목 추출: <a class="font-bold text-link ...">제목</a>
+    title = ""
+    title_links = await item.query_selector_all('a.font-bold')
+    for link in title_links:
+        cls = await link.get_attribute('class') or ''
+        if 'text-link' in cls:
+            title = (await link.inner_text()).strip()
+            break
+
+    if not title:
+        # fallback: 이미지 alt 속성에서 제목 추출
+        imgs = await item.query_selector_all('img[alt]')
+        for img in imgs:
+            alt = await img.get_attribute('alt')
+            # 아이콘 이미지 제외 (짧은 키워드들)
+            if alt and len(alt) > 3 and alt not in [
+                'オリジナル', '独占先行', '続話', '毎日無料プラス',
+                '評価', 'NEW'
+            ]:
+                title = alt.strip()
+                break
+
+    if not title:
+        return None
+
+    # 3. URL 추출: <a href="/books/{id}">
+    full_url = ""
+    book_link = await item.query_selector('a[href*="/books/"]')
+    if book_link:
+        url_path = await book_link.get_attribute('href')
+        if url_path:
+            if url_path.startswith('http'):
+                full_url = url_path
+            else:
+                full_url = f"https://mechacomic.jp{url_path}"
+
+    # 4. 장르 추출: <span class="inline-flex items-center ...">장르태그</span>
+    genres = []
+    genre_spans = await item.query_selector_all('span.inline-flex')
+    for gs in genre_spans:
+        genre_text = (await gs.inner_text()).strip()
+        if genre_text:
+            genres.append(genre_text)
+
+    # 첫 번째 장르를 메인 장르로 사용
+    genre = genres[0] if genres else ""
+
+    # 5. 썸네일 추출: <img class="h-auto max-w-full ...">
+    thumbnail = ""
+    cover_img = await item.query_selector('img.h-auto')
+    if cover_img:
+        thumbnail = await cover_img.get_attribute('src') or ""
+
+    return {
+        'rank': rank,
+        'title': title,
+        'genre': genre,
+        'url': full_url,
+        'thumbnail': thumbnail
+    }
 
 
 if __name__ == "__main__":
@@ -158,15 +201,15 @@ if __name__ == "__main__":
         print("=" * 60)
 
         async with async_playwright() as p:
-            browser = await p.chromium.launch(headless=False)  # 디버깅용
+            browser = await p.chromium.launch(headless=True)
 
             try:
                 result = await crawl(browser)
-                print(f"\n✅ 총 {len(result)}개 작품 수집")
+                print(f"\n총 {len(result)}개 작품 수집")
 
                 if result:
-                    print(f"\n샘플 (1~3위):")
-                    for item in result[:3]:
+                    print(f"\n샘플 (1~5위):")
+                    for item in result[:5]:
                         print(f"  {item['rank']}위: {item['title']}")
                         print(f"    장르: {item['genre']}")
                         print(f"    URL: {item['url']}")

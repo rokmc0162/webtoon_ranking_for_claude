@@ -50,6 +50,27 @@ def init_db():
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_riverse ON rankings(is_riverse) WHERE is_riverse = 1')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_title ON rankings(title)')
 
+    # works 메타데이터 테이블 (썸네일 등 캐싱용)
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS works (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            platform TEXT NOT NULL,
+            title TEXT NOT NULL,
+            thumbnail_url TEXT,
+            thumbnail_base64 TEXT,
+            url TEXT,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(platform, title)
+        )
+    ''')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_works_platform ON works(platform)')
+
+    # migration: 기존 works 테이블에 thumbnail_base64 컬럼이 없으면 추가
+    try:
+        cursor.execute('ALTER TABLE works ADD COLUMN thumbnail_base64 TEXT')
+    except sqlite3.OperationalError:
+        pass  # 이미 존재
+
     conn.commit()
     conn.close()
 
@@ -108,6 +129,127 @@ def save_rankings(date: str, platform: str, rankings: List[Dict[str, Any]]):
     conn.close()
 
     print(f"💾 {platform}: {saved_count}개 작품 DB 저장")
+
+
+def save_works_metadata(platform: str, works: List[Dict[str, Any]]):
+    """
+    작품 메타데이터 저장/갱신 (thumbnail_url 등 캐싱)
+
+    Args:
+        platform: 플랫폼 이름
+        works: [{'title': str, 'thumbnail_url': str, 'url': str}, ...]
+    """
+    if not works:
+        return
+
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+
+    count = 0
+    for item in works:
+        title = item.get('title', '')
+        thumbnail_url = item.get('thumbnail_url', '')
+        url = item.get('url', '')
+
+        if not title or not thumbnail_url:
+            continue
+
+        cursor.execute('''
+            INSERT INTO works (platform, title, thumbnail_url, url, updated_at)
+            VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(platform, title)
+            DO UPDATE SET
+                thumbnail_url = excluded.thumbnail_url,
+                url = excluded.url,
+                updated_at = CURRENT_TIMESTAMP
+        ''', (platform, title, thumbnail_url, url))
+        count += 1
+
+    conn.commit()
+    conn.close()
+
+    if count > 0:
+        print(f"🖼️  {platform}: {count}개 작품 메타데이터 저장")
+
+
+def get_works_thumbnails(platform: str) -> Dict[str, str]:
+    """
+    플랫폼의 모든 작품 썸네일 URL 맵 반환
+
+    Returns:
+        {title: thumbnail_url} 딕셔너리
+    """
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+
+    cursor.execute('''
+        SELECT title, thumbnail_url
+        FROM works
+        WHERE platform = ? AND thumbnail_url IS NOT NULL AND thumbnail_url != ''
+    ''', (platform,))
+
+    result = {row[0]: row[1] for row in cursor.fetchall()}
+    conn.close()
+    return result
+
+
+def save_thumbnail_base64(platform: str, title: str, b64_data: str):
+    """
+    작품 썸네일 base64 데이터 저장
+
+    Args:
+        platform: 플랫폼 이름
+        title: 작품명
+        b64_data: "data:image/jpeg;base64,..." 형식의 data URI
+    """
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute('''
+        UPDATE works SET thumbnail_base64 = ?, updated_at = CURRENT_TIMESTAMP
+        WHERE platform = ? AND title = ?
+    ''', (b64_data, platform, title))
+    conn.commit()
+    conn.close()
+
+
+def get_thumbnails_base64(platform: str) -> Dict[str, str]:
+    """
+    플랫폼의 모든 작품 썸네일 base64 맵 반환
+
+    Returns:
+        {title: "data:image/...;base64,..."} 딕셔너리
+    """
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute('''
+        SELECT title, thumbnail_base64
+        FROM works
+        WHERE platform = ? AND thumbnail_base64 IS NOT NULL AND thumbnail_base64 != ''
+    ''', (platform,))
+    result = {row[0]: row[1] for row in cursor.fetchall()}
+    conn.close()
+    return result
+
+
+def get_works_without_base64(platform: str) -> List[Dict[str, str]]:
+    """
+    base64가 없지만 thumbnail_url이 있는 작품 목록 반환
+
+    Returns:
+        [{'title': str, 'thumbnail_url': str}, ...]
+    """
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute('''
+        SELECT title, thumbnail_url
+        FROM works
+        WHERE platform = ?
+          AND thumbnail_url IS NOT NULL AND thumbnail_url != ''
+          AND (thumbnail_base64 IS NULL OR thumbnail_base64 = '')
+    ''', (platform,))
+    result = [{'title': row[0], 'thumbnail_url': row[1]} for row in cursor.fetchall()]
+    conn.close()
+    return result
 
 
 def backup_to_json(date: str, platform: str, rankings: List[Dict[str, Any]]):

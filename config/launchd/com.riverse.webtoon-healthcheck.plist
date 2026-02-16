@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.riverse.webtoon-healthcheck</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>/Users/kimyang-il/CLAUDE/webtoon_ranking_for_claude/scripts/health_check.sh</string>
+    </array>
+
+    <!-- 매일 오전 10시 헬스체크 (크롤러 실행 1시간 후) -->
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key>
+        <integer>10</integer>
+        <key>Minute</key>
+        <integer>0</integer>
+    </dict>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/kimyang-il/CLAUDE/webtoon_ranking_for_claude</string>
+
+    <key>StandardOutPath</key>
+    <string>/Users/kimyang-il/CLAUDE/webtoon_ranking_for_claude/logs/healthcheck_stdout.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/kimyang-il/CLAUDE/webtoon_ranking_for_claude/logs/healthcheck_stderr.log</string>
+</dict>
+</plist>

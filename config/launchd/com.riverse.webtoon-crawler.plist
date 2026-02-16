@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.riverse.webtoon-crawler</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>/Users/kimyang-il/CLAUDE/webtoon_ranking_for_claude/scripts/run_crawler.sh</string>
+    </array>
+
+    <!-- 매일 오전 9시, 오후 3시, 오후 9시 실행 (하루 3회) -->
+    <key>StartCalendarInterval</key>
+    <array>
+        <dict>
+            <key>Hour</key>
+            <integer>9</integer>
+            <key>Minute</key>
+            <integer>0</integer>
+        </dict>
+        <dict>
+            <key>Hour</key>
+            <integer>15</integer>
+            <key>Minute</key>
+            <integer>0</integer>
+        </dict>
+        <dict>
+            <key>Hour</key>
+            <integer>21</integer>
+            <key>Minute</key>
+            <integer>0</integer>
+        </dict>
+    </array>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/usr/local/bin:/usr/bin:/bin:/Users/kimyang-il/Library/Python/3.9/bin</string>
+        <key>LANG</key>
+        <string>ko_KR.UTF-8</string>
+    </dict>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/kimyang-il/CLAUDE/webtoon_ranking_for_claude</string>
+
+    <key>StandardOutPath</key>
+    <string>/Users/kimyang-il/CLAUDE/webtoon_ranking_for_claude/logs/launchd_stdout.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/kimyang-il/CLAUDE/webtoon_ranking_for_claude/logs/launchd_stderr.log</string>
+</dict>
+</plist>

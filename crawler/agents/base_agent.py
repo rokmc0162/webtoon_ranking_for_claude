@@ -173,11 +173,24 @@ class CrawlerAgent(ABC):
             date: Date string (YYYY-MM-DD)
             data: Ranking data to save
         """
-        from crawler.db import save_rankings, backup_to_json
+        from crawler.db import save_rankings, backup_to_json, save_works_metadata
 
         # Save to SQLite
         save_rankings(date, self.platform_id, data)
         self.logger.debug(f"Saved {len(data)} items to database")
+
+        # Save works metadata (thumbnails)
+        works_meta = [
+            {
+                'title': item['title'],
+                'thumbnail_url': item.get('thumbnail_url', ''),
+                'url': item.get('url', ''),
+            }
+            for item in data
+            if item.get('thumbnail_url')
+        ]
+        if works_meta:
+            save_works_metadata(self.platform_id, works_meta)
 
         # Backup to JSON
         backup_to_json(date, self.platform_id, data)

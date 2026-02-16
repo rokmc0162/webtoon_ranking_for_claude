@@ -19,11 +19,15 @@ project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
 from crawler.orchestrator import CrawlerOrchestrator
+from crawler.db import init_db
 
 
 def main():
     """메인 함수"""
     try:
+        # DB 초기화 (테이블 없으면 생성)
+        init_db()
+
         # Orchestrator를 통해 병렬 크롤링 실행
         orchestrator = CrawlerOrchestrator()
         results = asyncio.run(orchestrator.run_all())

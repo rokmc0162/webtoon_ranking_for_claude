@@ -32,3 +32,9 @@ playwright/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Tunnel (동적 생성 파일)
+data/tunnel_url.txt
+
+# Claude Code 로컬 설정
+.claude/settings.local.json

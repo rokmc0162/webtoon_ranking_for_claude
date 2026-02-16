@@ -2,16 +2,16 @@
 픽코마 (ピッコマ) 크롤러 에이전트
 
 특징:
-- SSR 방식 (HTML에 모든 데이터 포함, 가장 쉬움)
+- SSR 방식 (HTML에 모든 데이터 포함)
 - SMARTOON 종합 랭킹 크롤링
 - 일본 IP 필수
+- 셀렉터: .PCM-productTile ul > li (2026년 현재 구조)
 """
 
 from typing import List, Dict, Any
 from playwright.async_api import Browser
 
 from crawler.agents.base_agent import CrawlerAgent
-from crawler.utils import get_korean_title, is_riverse_title, translate_genre
 
 
 class PiccomaAgent(CrawlerAgent):
@@ -28,11 +28,20 @@ class PiccomaAgent(CrawlerAgent):
         """
         픽코마 SMARTOON 종합 랭킹 50위 크롤링
 
-        Args:
-            browser: Playwright 브라우저 인스턴스
-
-        Returns:
-            [{'rank': 1, 'title': '제목', 'genre': '장르', 'url': 'http://...'}, ...]
+        DOM 구조:
+        <div class="PCM-productTile PCOM-component">
+          <ul>
+            <li>
+              <a href="/web/product/{id}">
+                <img alt="제목" src="...">
+                <div class="PCM-rankingProduct_rankNum">1</div>
+                <div class="PCM-rankingProduct_rankChangeNum">11</div>
+                <div class="PCM-l_rankingProduct_name">제목</div>
+                <div class="PCM-l_rankingProduct_author">작가명</div>
+              </a>
+            </li>
+          </ul>
+        </div>
         """
         page = await browser.new_page()
         rankings = []
@@ -41,56 +50,23 @@ class PiccomaAgent(CrawlerAgent):
             self.logger.info(f"📱 {self.platform_name} 크롤링 중...")
             self.logger.info(f"   URL: {self.url}")
 
-            # SSR 방식이므로 domcontentloaded면 충분
             await page.goto(self.url, wait_until='domcontentloaded', timeout=30000)
 
-            # SSR이므로 즉시 데이터 있음, 하지만 안전하게 대기
-            await page.wait_for_selector(
-                '.PCM-productList_item, .ranking-item, article',
-                timeout=10000
-            )
+            # 랭킹 리스트 대기
+            await page.wait_for_selector('.PCM-productTile ul > li', timeout=10000)
+            await page.wait_for_timeout(1000)
 
-            # 작품 요소 추출
-            items = await page.query_selector_all(
-                '.PCM-productList_item, .ranking-item, article, li'
-            )
-
+            # 작품 아이템 추출 (정확히 50개)
+            items = await page.query_selector_all('.PCM-productTile ul > li')
             self.logger.info(f"   작품 요소 {len(items)}개 발견")
 
-            for i, item in enumerate(items[:50], 1):  # 상위 50개만
+            for item in items[:50]:
                 try:
-                    # 순위 추출
-                    rank = await self._extract_rank(item, i)
-
-                    # 제목 추출
-                    title = await self._extract_title(item)
-
-                    if not title:
-                        continue
-
-                    # URL 추출
-                    url_full = await self._extract_url(item)
-
-                    # 장르 추출
-                    genre = await self._extract_genre(item)
-
-                    # 한국어 제목 및 리버스 여부 확인
-                    title_kr = get_korean_title(title)
-                    is_riverse = is_riverse_title(title)
-                    genre_kr = translate_genre(genre)
-
-                    rankings.append({
-                        'rank': rank,
-                        'title': title.strip(),
-                        'title_kr': title_kr,
-                        'genre': genre.strip() if genre else "",
-                        'genre_kr': genre_kr,
-                        'url': url_full,
-                        'is_riverse': is_riverse
-                    })
-
+                    entry = await self._parse_item(item)
+                    if entry:
+                        rankings.append(entry)
                 except Exception as e:
-                    self.logger.debug(f"{i}번째 작품 파싱 실패: {e}")
+                    self.logger.debug(f"작품 파싱 실패: {e}")
                     continue
 
             self.logger.info(f"   ✅ {self.platform_name}: {len(rankings)}개 작품 수집 완료")
@@ -99,93 +75,65 @@ class PiccomaAgent(CrawlerAgent):
         finally:
             await page.close()
 
-    async def _extract_rank(self, item, fallback: int) -> int:
-        """순위 추출 (selector 우선, fallback은 순서)"""
-        rank_elem = await item.query_selector('.rank, .ranking-number, .number')
+    async def _parse_item(self, item) -> Dict[str, Any]:
+        """개별 랭킹 아이템 파싱"""
 
-        if rank_elem:
-            rank_text = await rank_elem.inner_text()
-            try:
-                return int(rank_text.strip().replace('位', '').replace('#', ''))
-            except ValueError:
-                pass
+        # 1. 순위: .PCM-rankingProduct_rankNum
+        rank_el = await item.query_selector('.PCM-rankingProduct_rankNum')
+        if not rank_el:
+            return None
+        rank_text = (await rank_el.inner_text()).strip()
+        try:
+            rank = int(rank_text)
+        except ValueError:
+            return None
 
-        return fallback
+        # 2. 제목: img[alt] (가장 신뢰할 수 있는 소스)
+        title = None
+        img_el = await item.query_selector('img[alt]')
+        if img_el:
+            title = await img_el.get_attribute('alt')
 
-    async def _extract_title(self, item) -> str:
-        """제목 추출 (여러 방법 시도)"""
-        # Method 1: title class
-        title_elem = await item.query_selector('.PCM-product-title, .title, h3, h2')
-        if title_elem:
-            title = await title_elem.inner_text()
-            if title:
-                return title.strip()
+        # fallback: .PCM-l_rankingProduct_name
+        if not title:
+            name_el = await item.query_selector('.PCM-l_rankingProduct_name')
+            if name_el:
+                title = (await name_el.inner_text()).strip()
 
-        # Method 2: link attributes
-        link_elem = await item.query_selector('a')
-        if link_elem:
-            title = await link_elem.get_attribute('aria-label')
-            if title:
-                return title.strip()
+        if not title:
+            return None
 
-            title = await link_elem.get_attribute('title')
-            if title:
-                return title.strip()
+        # 3. URL: a[href*="/web/product"]
+        url = ''
+        link_el = await item.query_selector('a[href*="/web/product"]')
+        if link_el:
+            href = await link_el.get_attribute('href')
+            if href:
+                url = f"https://piccoma.com{href}" if not href.startswith('http') else href
 
-        # Method 3: 전체 텍스트 파싱
-        text = await item.inner_text()
-        lines = [l.strip() for l in text.split('\n') if l.strip()]
-        for line in lines:
-            if len(line) > 3 and '位' not in line and '#' not in line:
-                return line
+        # 4. 장르: 픽코마 랭킹 페이지에는 장르 정보가 없음 (빈 문자열)
+        genre = ''
 
-        return ""
+        # 5. 썸네일: data-original (lazy loading) → src fallback
+        thumbnail_url = ''
+        if img_el:
+            # data-original에 실제 URL이 있음 (lazy loading)
+            thumb_src = await img_el.get_attribute('data-original') or ''
+            if not thumb_src:
+                thumb_src = await img_el.get_attribute('src') or ''
+            if thumb_src and 'ph_cover.png' not in thumb_src:
+                thumbnail_url = f"https:{thumb_src}" if thumb_src.startswith('//') else thumb_src
 
-    async def _extract_url(self, item) -> str:
-        """URL 추출"""
-        link_elem = await item.query_selector('a')
-        if not link_elem:
-            return ""
-
-        url_path = await link_elem.get_attribute('href')
-        if not url_path:
-            return ""
-
-        if url_path.startswith('http'):
-            return url_path
-        else:
-            return f"https://piccoma.com{url_path}"
-
-    async def _extract_genre(self, item) -> str:
-        """장르 추출"""
-        # Method 1: selector
-        genre_elem = await item.query_selector('.genre, .category, .tag')
-        if genre_elem:
-            genre = await genre_elem.inner_text()
-            if genre:
-                return genre.strip()
-
-        # Method 2: 텍스트에서 키워드 매칭
-        text = await item.inner_text()
-        return self._extract_genre_from_text(text)
-
-    def _extract_genre_from_text(self, text: str) -> str:
-        """텍스트에서 장르 키워드 추출"""
-        genres = [
-            'ファンタジー', '恋愛', 'アクション', 'ドラマ', 'ホラー', 'ミステリー',
-            'コメディ', 'サスペンス', 'SF', '学園', 'スポーツ', 'グルメ',
-            '日常', 'BL', 'TL', '異世界', '転生', '復讐', 'バトル', '歴史'
-        ]
-
-        for genre in genres:
-            if genre in text:
-                return genre
-
-        return ""
+        return {
+            'rank': rank,
+            'title': title.strip(),
+            'genre': genre,
+            'url': url,
+            'thumbnail_url': thumbnail_url,
+        }
 
 
 if __name__ == "__main__":
-    # 테스트 코드
     import asyncio
     from playwright.async_api import async_playwright
 
@@ -195,7 +143,7 @@ if __name__ == "__main__":
         print("=" * 60)
 
         async with async_playwright() as p:
-            browser = await p.chromium.launch(headless=False)
+            browser = await p.chromium.launch(headless=True)
 
             try:
                 agent = PiccomaAgent()
@@ -205,13 +153,10 @@ if __name__ == "__main__":
                 print(f"✅ Count: {result.count}")
 
                 if result.success and result.data:
-                    print(f"\n샘플 (1~3위):")
-                    for item in result.data[:3]:
+                    print(f"\n샘플 (1~5위):")
+                    for item in result.data[:5]:
                         print(f"  {item['rank']}위: {item['title']}")
-                        if item['title_kr']:
-                            print(f"    한국어: {item['title_kr']}")
-                        print(f"    장르: {item['genre']} ({item['genre_kr']})")
-                        print(f"    리버스: {item['is_riverse']}")
+                        print(f"    URL: {item['url']}")
                 else:
                     print(f"\n❌ Error: {result.error}")
 

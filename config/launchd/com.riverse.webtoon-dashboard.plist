@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.riverse.webtoon-dashboard</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>/Users/kimyang-il/CLAUDE/webtoon_ranking_for_claude/scripts/run_dashboard.sh</string>
+    </array>
+
+    <!-- 항상 실행 유지 (크래시 시 자동 재시작) -->
+    <key>KeepAlive</key>
+    <true/>
+
+    <!-- 부팅 시 자동 시작 -->
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/usr/local/bin:/usr/bin:/bin:/Users/kimyang-il/Library/Python/3.9/bin</string>
+        <key>LANG</key>
+        <string>ko_KR.UTF-8</string>
+    </dict>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/kimyang-il/CLAUDE/webtoon_ranking_for_claude</string>
+
+    <key>StandardOutPath</key>
+    <string>/Users/kimyang-il/CLAUDE/webtoon_ranking_for_claude/logs/dashboard_stdout.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/kimyang-il/CLAUDE/webtoon_ranking_for_claude/logs/dashboard_stderr.log</string>
+
+    <!-- 재시작 간격 (초) - 너무 빠른 재시작 방지 -->
+    <key>ThrottleInterval</key>
+    <integer>10</integer>
+</dict>
+</plist>
