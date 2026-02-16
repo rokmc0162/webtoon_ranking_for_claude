@@ -38,21 +38,25 @@ PLATFORMS = {
         'name': '픽코마',
         'color': '#FF6B6B',
         'logo': 'docs/픽코마.webp',
+        'source_url': 'https://piccoma.com/web/ranking/S/P/0',
     },
     'linemanga': {
         'name': '라인망가',
         'color': '#06C755',
         'logo': 'docs/라인망가.png',
+        'source_url': 'https://manga.line.me/periodic/gender_ranking?gender=0',
     },
     'mechacomic': {
         'name': '메챠코믹',
         'color': '#4A90D9',
         'logo': 'docs/메챠코믹.png',
+        'source_url': 'https://mechacomic.jp/sales_rankings/current',
     },
     'cmoa': {
         'name': '코믹시모아',
         'color': '#F5A623',
         'logo': 'docs/시모아.jpg',
+        'source_url': 'https://www.cmoa.jp/search/purpose/ranking/all/',
     },
 }
 
@@ -841,8 +845,8 @@ def main():
         st.code("python3 crawler/main.py", language="bash")
         st.stop()
 
-    # 날짜 선택
-    col_date, col_refresh = st.columns([4, 1])
+    # 날짜 선택 + 새로고침 + 출처 링크
+    col_date, col_refresh, col_source = st.columns([2, 1, 2])
     with col_date:
         selected_date = st.selectbox(
             "날짜", dates,
@@ -850,8 +854,17 @@ def main():
             label_visibility="collapsed"
         )
     with col_refresh:
-        if st.button("🔄 새로고침", use_container_width=True):
+        if st.button("🔄", use_container_width=True):
             st.rerun()
+    with col_source:
+        platform_key = st.session_state.get('selected_platform', 'piccoma')
+        src_url = PLATFORMS.get(platform_key, {}).get('source_url', '')
+        src_name = PLATFORMS.get(platform_key, {}).get('name', '')
+        st.markdown(
+            f'<a href="{src_url}" target="_blank" style="font-size:13px; color:#6B7280; text-decoration:none;">'
+            f'📎 데이터 출처: {src_name}</a>',
+            unsafe_allow_html=True
+        )
 
     # 플랫폼 통계
     stats = get_platform_stats(selected_date)
@@ -918,6 +931,11 @@ def main():
     with col_title:
         st.markdown(f"**{pinfo['name']}** 랭킹 TOP {len(df)} — {selected_date}")
     with col_filter:
+        st.markdown(
+            f'<div style="display:flex; align-items:center; gap:4px; margin-bottom:-10px;">'
+            f'<img src="{RIVERSE_LOGO}" style="height:16px; width:auto;"></div>',
+            unsafe_allow_html=True
+        )
         show_riverse = st.checkbox("RIVERSE만", key="riverse_filter")
 
     if show_riverse:
