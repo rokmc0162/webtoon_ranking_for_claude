@@ -872,6 +872,8 @@ def main():
     # 세션 스테이트
     if 'selected_platform' not in st.session_state:
         st.session_state.selected_platform = 'piccoma'
+    if 'riverse_only' not in st.session_state:
+        st.session_state.riverse_only = False
 
     # =========================================================================
     # 플랫폼 카드 (로고 이미지 + 플랫폼명 버튼 = 하나의 카드)
@@ -936,7 +938,10 @@ def main():
             f'<img src="{RIVERSE_LOGO}" style="height:16px; width:auto;"></div>',
             unsafe_allow_html=True
         )
-        show_riverse = st.checkbox("RIVERSE만", key="riverse_filter")
+        show_riverse = st.checkbox("RIVERSE만", key="riverse_filter",
+                                           value=st.session_state.riverse_only,
+                                           on_change=lambda: setattr(st.session_state, 'riverse_only',
+                                                                     not st.session_state.riverse_only))
 
     if show_riverse:
         df = df[df['is_riverse'] == 1].reset_index(drop=True)
