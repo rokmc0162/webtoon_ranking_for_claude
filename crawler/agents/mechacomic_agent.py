@@ -6,6 +6,7 @@
 - Tailwind CSS 기반 UI (2026년 리뉴얼 버전 대응)
 - 단일 페이지에 전체 랭킹 표시 (ul.grid > li 구조)
 - IP 제한 없음 (한국에서도 접근 가능)
+- 카테고리별 랭킹: ?category= 파라미터로 구분
 """
 
 import re
@@ -16,7 +17,17 @@ from crawler.agents.base_agent import CrawlerAgent
 
 
 class MechacomicAgent(CrawlerAgent):
-    """메챠코믹 판매 랭킹 크롤러 에이전트"""
+    """메챠코믹 판매 랭킹 + 카테고리별 크롤러 에이전트"""
+
+    # 카테고리별 랭킹 매핑
+    GENRE_RANKINGS = {
+        '': {'name': '종합', 'category': ''},
+        '少女': {'name': '소녀', 'category': 'shojo'},
+        '女性': {'name': '여성', 'category': 'josei'},
+        '少年': {'name': '소년', 'category': 'shonen'},
+        '青年': {'name': '청년', 'category': 'seinen'},
+        'ハーレクイン': {'name': '할리퀸', 'category': 'harlequin'},
+    }
 
     def __init__(self):
         super().__init__(
@@ -24,10 +35,11 @@ class MechacomicAgent(CrawlerAgent):
             platform_name='메챠코믹 (판매)',
             url='https://mechacomic.jp/sales_rankings/current'
         )
+        self.genre_results = {}
 
     async def crawl(self, browser: Browser) -> List[Dict[str, Any]]:
         """
-        메챠코믹 데일리 판매 랭킹 크롤링
+        메챠코믹 종합 + 카테고리별 판매 랭킹 크롤링
 
         DOM 구조 (2026년 Tailwind CSS 리뉴얼 버전):
         <ul class="grid grid-cols-1 lg:grid-cols-2">
@@ -47,48 +59,59 @@ class MechacomicAgent(CrawlerAgent):
         </ul>
         """
         page = await browser.new_page()
-        rankings = []
+        all_rankings = []
 
         try:
-            self.logger.info(f"📱 {self.platform_name} 크롤링 중...")
-            self.logger.info(f"   URL: {self.url}")
+            for genre_key, genre_info in self.GENRE_RANKINGS.items():
+                label = genre_info['name']
+                category = genre_info['category']
+                self.logger.info(f"📱 메챠코믹 [{label}] 크롤링 중...")
 
-            # 3페이지 순회 (각 20개씩, 총 60개 중 상위 50개 사용)
-            for page_num in range(1, 4):
-                url = f'{self.url}?page={page_num}' if page_num > 1 else self.url
-                self.logger.debug(f"   페이지 {page_num} 접속 중...")
+                rankings = await self._crawl_category(page, category, genre_key)
+                self.genre_results[genre_key] = rankings
+                self.logger.info(f"   ✅ [{label}]: {len(rankings)}개 작품")
 
-                await page.goto(url, wait_until='domcontentloaded', timeout=30000)
+                # 종합 랭킹은 반환값으로 사용
+                if genre_key == '':
+                    all_rankings = rankings
 
-                # JS 렌더링 대기 - 랭킹 그리드가 나타날 때까지
-                await page.wait_for_selector(
-                    'ul.grid li',
-                    timeout=15000
-                )
-                await page.wait_for_timeout(1500)
-
-                # 랭킹 리스트 아이템 추출
-                items = await page.query_selector_all('ul.grid.grid-cols-1 > li')
-                self.logger.debug(f"   페이지 {page_num}: {len(items)}개 요소 발견")
-
-                for item in items:
-                    try:
-                        ranking_entry = await self._parse_item(item)
-                        if ranking_entry:
-                            rankings.append(ranking_entry)
-                    except Exception as e:
-                        self.logger.debug(f"개별 작품 파싱 실패: {e}")
-                        continue
-
-            # 순위 정렬 및 상위 50개
-            rankings.sort(key=lambda x: x['rank'])
-            result = rankings[:50]
-
-            self.logger.info(f"   ✅ {self.platform_name}: {len(result)}개 작품 수집 완료")
-            return result
+            return all_rankings
 
         finally:
             await page.close()
+
+    async def _crawl_category(self, page, category: str, genre_key: str) -> List[Dict[str, Any]]:
+        """특정 카테고리의 랭킹 크롤링 (3페이지, 상위 50개)"""
+        rankings = []
+
+        for page_num in range(1, 4):
+            # URL 구성: category + page 파라미터
+            params = []
+            if category:
+                params.append(f'category={category}')
+            if page_num > 1:
+                params.append(f'page={page_num}')
+            url = f'{self.url}?{"&".join(params)}' if params else self.url
+
+            await page.goto(url, wait_until='domcontentloaded', timeout=30000)
+            await page.wait_for_selector('ul.grid li', timeout=15000)
+            await page.wait_for_timeout(1500)
+
+            items = await page.query_selector_all('ul.grid.grid-cols-1 > li')
+
+            for item in items:
+                try:
+                    entry = await self._parse_item(item)
+                    if entry:
+                        if genre_key and not entry['genre']:
+                            entry['genre'] = genre_key
+                        rankings.append(entry)
+                except Exception as e:
+                    self.logger.debug(f"개별 작품 파싱 실패: {e}")
+                    continue
+
+        rankings.sort(key=lambda x: x['rank'])
+        return rankings[:50]
 
     async def _parse_item(self, item) -> Dict[str, Any]:
         """개별 랭킹 아이템 파싱"""
@@ -166,6 +189,36 @@ class MechacomicAgent(CrawlerAgent):
             'thumbnail_url': thumbnail_url,
         }
 
+    async def save(self, date: str, data: List[Dict[str, Any]]):
+        """종합 + 카테고리별 랭킹 모두 저장"""
+        from crawler.db import save_rankings, backup_to_json, save_works_metadata
+
+        # 종합 랭킹 저장
+        save_rankings(date, self.platform_id, data, sub_category='')
+        works_meta = [
+            {'title': item['title'], 'thumbnail_url': item.get('thumbnail_url', ''),
+             'url': item.get('url', '')}
+            for item in data if item.get('thumbnail_url')
+        ]
+        if works_meta:
+            save_works_metadata(self.platform_id, works_meta)
+        backup_to_json(date, self.platform_id, data)
+
+        # 카테고리별 랭킹 저장
+        for genre_key, rankings in self.genre_results.items():
+            if genre_key == '':
+                continue
+            genre_name = self.GENRE_RANKINGS[genre_key]['name']
+            save_rankings(date, self.platform_id, rankings, sub_category=genre_key)
+            genre_meta = [
+                {'title': item['title'], 'thumbnail_url': item.get('thumbnail_url', ''),
+                 'url': item.get('url', '')}
+                for item in rankings if item.get('thumbnail_url')
+            ]
+            if genre_meta:
+                save_works_metadata(self.platform_id, genre_meta)
+            self.logger.info(f"   💾 [{genre_name}]: {len(rankings)}개 저장")
+
 
 if __name__ == "__main__":
     import asyncio
@@ -192,6 +245,12 @@ if __name__ == "__main__":
                         print(f"  {item['rank']}위: {item['title']}")
                         print(f"    장르: {item['genre']}")
                         print(f"    URL: {item['url']}")
+
+                    # 카테고리별 결과 요약
+                    print(f"\n카테고리별 결과:")
+                    for gkey, rankings in agent.genre_results.items():
+                        label = agent.GENRE_RANKINGS[gkey]['name']
+                        print(f"  [{label}]: {len(rankings)}개")
                 else:
                     print(f"\n❌ Error: {result.error}")
 
