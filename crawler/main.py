@@ -1,0 +1,56 @@
+"""
+메인 크롤러 - 4개 플랫폼 병렬 실행 (Agent 기반)
+
+실행 방법:
+    python3 crawler/main.py
+
+변경사항:
+- 순차 실행 → 병렬 실행 (asyncio.gather)
+- 각 플랫폼이 독립 에이전트로 실행
+- 재시도 로직 내장 (exponential backoff)
+"""
+
+import asyncio
+from pathlib import Path
+import sys
+
+# 프로젝트 루트를 sys.path에 추가
+project_root = Path(__file__).parent.parent
+sys.path.insert(0, str(project_root))
+
+from crawler.orchestrator import CrawlerOrchestrator
+
+
+def main():
+    """메인 함수"""
+    try:
+        # Orchestrator를 통해 병렬 크롤링 실행
+        orchestrator = CrawlerOrchestrator()
+        results = asyncio.run(orchestrator.run_all())
+
+        # 성공 여부에 따라 종료 코드 반환
+        success_count = sum(1 for r in results.values() if r.success)
+
+        if success_count == 0:
+            print("⚠️  모든 플랫폼 크롤링 실패")
+            sys.exit(1)
+        elif success_count < 4:
+            print(f"⚠️  일부 플랫폼 크롤링 실패 ({success_count}/4)")
+            sys.exit(0)  # 일부 성공은 정상 종료
+        else:
+            print("🎉 모든 플랫폼 크롤링 성공!")
+            sys.exit(0)
+
+    except KeyboardInterrupt:
+        print("\n\n⚠️  사용자가 중단했습니다")
+        sys.exit(130)
+
+    except Exception as e:
+        print(f"\n❌ 크롤링 실행 중 오류 발생: {e}")
+        import traceback
+        traceback.print_exc()
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()
