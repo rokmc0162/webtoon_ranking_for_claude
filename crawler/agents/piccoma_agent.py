@@ -177,7 +177,7 @@ class PiccomaAgent(CrawlerAgent):
                         update_rankings_genre('piccoma', item['title'], genre, genre_kr)
                         fetched += 1
                 except Exception as e:
-                    self.logger.debug(f"   장르 수집 실패 ({item['title']}): {e}")
+                    self.logger.warning(f"   장르 수집 실패 ({item['title']}): {e}")
                     continue
         finally:
             await page.close()
@@ -185,7 +185,7 @@ class PiccomaAgent(CrawlerAgent):
         self.logger.info(f"   📚 장르 수집 완료: {fetched}/{len(need_fetch)}개 성공")
 
     async def _fetch_genre_from_page(self, page, url: str) -> str:
-        """개별 작품 페이지에서 JSON-LD의 category 필드로 장르 추출"""
+        """개별 작품 페이지에서 BreadcrumbList의 position 2(장르)를 추출"""
         await page.goto(url, wait_until='domcontentloaded', timeout=15000)
 
         genre = await page.evaluate('''
@@ -194,8 +194,10 @@ class PiccomaAgent(CrawlerAgent):
                 for (const s of scripts) {
                     try {
                         const data = JSON.parse(s.textContent);
-                        if (data["@type"] === "Product" && data.category) {
-                            return data.category;
+                        if (data["@type"] === "BreadCrumbList" && data.itemListElement) {
+                            for (const item of data.itemListElement) {
+                                if (item.position === 2) return item.name;
+                            }
                         }
                     } catch(e) {}
                 }
