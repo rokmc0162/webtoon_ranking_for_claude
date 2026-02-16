@@ -510,19 +510,17 @@ td {{
     .thumb-empty {{ width: 36px; height: 50px; }}
 }}
 
-/* 모달 — 클릭 위치 기반 동적 배치 */
+/* 모달 — 오버레이는 전체, 콘텐츠는 클릭 위치 */
 .modal-overlay {{
     display: none;
     position: absolute;
-    left: 0; right: 0;
+    top: 0; left: 0; right: 0; bottom: 0;
     min-height: 100%;
     background: rgba(0,0,0,0.5);
     z-index: 1000;
-    justify-content: center;
-    align-items: flex-start;
 }}
 .modal-overlay.active {{
-    display: flex;
+    display: block;
 }}
 .modal-content {{
     background: white;
@@ -533,7 +531,9 @@ td {{
     max-height: 600px;
     overflow-y: auto;
     box-shadow: 0 20px 60px rgba(0,0,0,0.3);
-    position: relative;
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
 }}
 .modal-close {{
     position: absolute;
@@ -746,11 +746,10 @@ function showChart(title, clickY) {{
     var noData = document.getElementById('noData');
     var chartContainer = document.querySelector('.chart-container');
 
-    // 모달 오버레이를 클릭 위치 근처에 배치
-    var modalTop = Math.max(0, (clickY || 0) - 100);
-    modal.style.top = modalTop + 'px';
-    modal.style.bottom = '0';
-    modal.style.paddingTop = '20px';
+    // 모달 콘텐츠를 클릭 위치 근처에 배치
+    var contentEl = modal.querySelector('.modal-content');
+    var modalTop = Math.max(20, (clickY || 0) - 100);
+    contentEl.style.top = modalTop + 'px';
 
     var kr = TITLE_KR[title] || '';
     titleEl.textContent = '📈 ' + title;
