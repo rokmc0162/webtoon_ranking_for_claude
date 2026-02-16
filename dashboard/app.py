@@ -80,19 +80,23 @@ RIVERSE_LOGO = _load_logo_base64('docs/riverse_logo.png')
 
 st.markdown("""
 <style>
-/* ===== 레이아웃: 상단 공백 최소화 ===== */
+/* ===== 레이아웃: 상단 공백 완전 제거 ===== */
 .main .block-container {
-    padding-top: 0.5rem !important;
+    padding-top: 0 !important;
     padding-bottom: 1rem !important;
     max-width: 1200px;
 }
 header[data-testid="stHeader"] { display: none !important; }
-div[data-testid="stDecoration"] { display: none; }
-#MainMenu { display: none; }
-footer { display: none; }
-/* Streamlit 기본 상단 여백 제거 */
+div[data-testid="stDecoration"] { display: none !important; }
+#MainMenu { display: none !important; }
+footer { display: none !important; }
 .stApp > header { display: none !important; }
 .stApp [data-testid="stAppViewContainer"] { padding-top: 0 !important; }
+[data-testid="stAppViewBlockContainer"] { padding-top: 0 !important; }
+.block-container { padding-top: 0 !important; margin-top: 0 !important; }
+/* iframe 상단 여백도 제거 */
+.element-container { margin-top: 0; }
+.stMarkdown { min-height: 0 !important; }
 
 /* ===== 플랫폼 카드: 투명 버튼을 카드 위로 겹치기 ===== */
 [data-testid="stVerticalBlock"]:has(.pcard-logo) [data-testid="stElementContainer"]:has([data-testid="stButton"]) {
@@ -814,13 +818,11 @@ document.addEventListener('keydown', function(e) {{
 # =============================================================================
 
 def main():
-    # 헤더
-    st.markdown('''
-    <div style="text-align:center; padding: 0 0 0.5rem 0;">
-        <h2 style="font-size:1.3rem; font-weight:700; color:#1F2937; margin:0 0 0.1rem 0;">
-            📊 일본 웹툰 플랫폼 랭킹
-        </h2>
-        <p style="color:#6B7280; font-size:0.8rem; margin:0;">RIVERSE Inc. — 4대 플랫폼 자동 수집 시스템</p>
+    # 헤더 (리버스 로고 + 제목, 공백 최소화)
+    st.markdown(f'''
+    <div style="display:flex; align-items:center; justify-content:center; gap:8px; padding:0.3rem 0 0.4rem 0;">
+        <img src="{RIVERSE_LOGO}" style="height:22px; width:auto;">
+        <span style="font-size:1.2rem; font-weight:700; color:#1F2937;">일본 랭킹 아카이브</span>
     </div>
     ''', unsafe_allow_html=True)
 
