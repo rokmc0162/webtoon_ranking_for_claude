@@ -79,15 +79,21 @@ PLATFORM_LOGOS = {pid: _load_logo_base64(info['logo']) for pid, info in PLATFORM
 
 st.markdown("""
 <style>
+/* ===== 레이아웃: 상단 공백 최소화 ===== */
 .main .block-container {
-    padding-top: 1.5rem;
+    padding-top: 0.5rem !important;
+    padding-bottom: 1rem !important;
     max-width: 1200px;
 }
+header[data-testid="stHeader"] { display: none !important; }
 div[data-testid="stDecoration"] { display: none; }
 #MainMenu { display: none; }
 footer { display: none; }
+/* Streamlit 기본 상단 여백 제거 */
+.stApp > header { display: none !important; }
+.stApp [data-testid="stAppViewContainer"] { padding-top: 0 !important; }
 
-/* 플랫폼 카드: 투명 버튼을 카드 위로 겹치기 */
+/* ===== 플랫폼 카드: 투명 버튼을 카드 위로 겹치기 ===== */
 [data-testid="stVerticalBlock"]:has(.pcard-logo) [data-testid="stElementContainer"]:has([data-testid="stButton"]) {
     margin-top: -100px !important;
     position: relative;
@@ -97,6 +103,14 @@ footer { display: none; }
     opacity: 0 !important;
     min-height: 98px !important;
     cursor: pointer !important;
+}
+
+/* ===== 반응형: 모바일 최적화 ===== */
+@media (max-width: 768px) {
+    .main .block-container {
+        padding-left: 0.5rem !important;
+        padding-right: 0.5rem !important;
+    }
 }
 </style>
 """, unsafe_allow_html=True)
@@ -379,6 +393,7 @@ def build_ranking_html(df: pd.DataFrame, platform: str, thumbnails: dict,
 <html>
 <head>
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
 * {{ margin: 0; padding: 0; box-sizing: border-box; }}
 body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: white; }}
@@ -386,18 +401,18 @@ body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; 
 table {{
     width: 100%;
     border-collapse: collapse;
-    font-size: 13px;
+    font-size: 15px;
 }}
 thead th {{
     position: sticky;
     top: 0;
     background: #F8F9FA;
-    padding: 10px 8px;
+    padding: 12px 10px;
     text-align: left;
     font-weight: 600;
     color: #374151;
     border-bottom: 2px solid #E5E7EB;
-    font-size: 12px;
+    font-size: 14px;
     white-space: nowrap;
     z-index: 10;
 }}
@@ -409,70 +424,83 @@ tbody tr:hover {{
     background: #F9FAFB;
 }}
 td {{
-    padding: 8px;
+    padding: 10px;
     vertical-align: middle;
 }}
 
 .col-rank {{ width: 50px; text-align: center; }}
 .rank-top3 {{
     display: inline-flex; align-items: center; justify-content: center;
-    width: 28px; height: 28px; border-radius: 50%;
+    width: 32px; height: 32px; border-radius: 50%;
     background: {platform_color}; color: white;
-    font-weight: 700; font-size: 13px;
+    font-weight: 700; font-size: 15px;
 }}
 .rank-top10 {{
     display: inline-flex; align-items: center; justify-content: center;
-    width: 28px; height: 28px; border-radius: 50%;
+    width: 32px; height: 32px; border-radius: 50%;
     background: #E5E7EB; color: #374151;
-    font-weight: 600; font-size: 13px;
+    font-weight: 600; font-size: 15px;
 }}
 .rank-normal {{ color: #6B7280; font-weight: 500; }}
 
-.col-thumb {{ width: 52px; text-align: center; }}
+.col-thumb {{ width: 56px; text-align: center; }}
 .thumb {{
-    width: 40px; height: 56px; object-fit: cover;
+    width: 44px; height: 62px; object-fit: cover;
     border-radius: 4px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);
 }}
 .thumb-empty {{
-    width: 40px; height: 56px; display: flex;
+    width: 44px; height: 62px; display: flex;
     align-items: center; justify-content: center;
     background: #F3F4F6; border-radius: 4px;
-    font-size: 18px;
+    font-size: 20px;
 }}
 
-.col-change {{ width: 60px; text-align: center; }}
-.change-up {{ color: #EF4444; font-weight: 600; font-size: 12px; }}
-.change-down {{ color: #3B82F6; font-weight: 600; font-size: 12px; }}
+.col-change {{ width: 64px; text-align: center; }}
+.change-up {{ color: #EF4444; font-weight: 600; font-size: 14px; }}
+.change-down {{ color: #3B82F6; font-weight: 600; font-size: 14px; }}
 .change-new {{
-    background: #FEF3C7; color: #D97706; padding: 2px 6px;
-    border-radius: 10px; font-size: 11px; font-weight: 700;
+    background: #FEF3C7; color: #D97706; padding: 2px 8px;
+    border-radius: 10px; font-size: 12px; font-weight: 700;
 }}
 .change-same {{ color: #9CA3AF; }}
 
 .col-title {{ min-width: 200px; }}
 .title-link {{
     color: #1F2937; text-decoration: none; font-weight: 500;
+    font-size: 15px;
 }}
 .title-link:hover {{
     color: {platform_color}; text-decoration: underline;
 }}
-.riverse {{ font-size: 12px; }}
+.riverse {{ font-size: 13px; }}
 
-.col-kr {{ color: #6B7280; font-size: 12px; min-width: 120px; }}
+.col-kr {{ color: #6B7280; font-size: 14px; min-width: 120px; }}
 
-.col-genre {{ width: 80px; }}
+.col-genre {{ width: 90px; }}
 .genre-tag {{
-    background: #F3F4F6; color: #4B5563; padding: 2px 8px;
-    border-radius: 10px; font-size: 11px; white-space: nowrap;
+    background: #F3F4F6; color: #4B5563; padding: 3px 10px;
+    border-radius: 10px; font-size: 13px; white-space: nowrap;
 }}
 
-.col-chart {{ width: 44px; text-align: center; }}
+.col-chart {{ width: 48px; text-align: center; }}
 .chart-btn {{
-    text-decoration: none; font-size: 18px;
+    text-decoration: none; font-size: 22px;
     cursor: pointer; opacity: 0.7;
     transition: opacity 0.15s;
 }}
 .chart-btn:hover {{ opacity: 1.0; }}
+
+/* ===== 모바일 반응형 ===== */
+@media (max-width: 768px) {{
+    table {{ font-size: 14px; }}
+    thead th {{ padding: 10px 6px; font-size: 13px; }}
+    td {{ padding: 8px 6px; }}
+    .col-kr, .col-genre {{ display: none; }}
+    .col-title {{ min-width: 120px; }}
+    .title-link {{ font-size: 14px; }}
+    .thumb {{ width: 36px; height: 50px; }}
+    .thumb-empty {{ width: 36px; height: 50px; }}
+}}
 
 /* 모달 */
 .modal-overlay {{
@@ -510,14 +538,14 @@ td {{
 }}
 .modal-close:hover {{ color: #374151; }}
 .modal-title {{
-    font-size: 16px;
+    font-size: 18px;
     font-weight: 700;
     color: #1F2937;
     margin-bottom: 4px;
     padding-right: 30px;
 }}
 .modal-subtitle {{
-    font-size: 13px;
+    font-size: 14px;
     color: #6B7280;
     margin-bottom: 16px;
 }}
@@ -538,12 +566,12 @@ td {{
     border-radius: 10px;
 }}
 .stat-label {{
-    font-size: 11px;
+    font-size: 13px;
     color: #9CA3AF;
     margin-bottom: 2px;
 }}
 .stat-value {{
-    font-size: 18px;
+    font-size: 20px;
     font-weight: 700;
     color: #1F2937;
 }}
@@ -551,7 +579,7 @@ td {{
     text-align: center;
     color: #9CA3AF;
     padding: 40px 0;
-    font-size: 14px;
+    font-size: 15px;
 }}
 </style>
 </head>
@@ -784,11 +812,11 @@ document.addEventListener('keydown', function(e) {{
 def main():
     # 헤더
     st.markdown('''
-    <div style="text-align:center; padding: 0.3rem 0 0.8rem 0;">
-        <h2 style="font-size:1.5rem; font-weight:700; color:#1F2937; margin-bottom:0.1rem;">
+    <div style="text-align:center; padding: 0 0 0.5rem 0;">
+        <h2 style="font-size:1.3rem; font-weight:700; color:#1F2937; margin:0 0 0.1rem 0;">
             📊 일본 웹툰 플랫폼 랭킹
         </h2>
-        <p style="color:#6B7280; font-size:0.85rem;">RIVERSE Inc. — 4대 플랫폼 자동 수집 시스템</p>
+        <p style="color:#6B7280; font-size:0.8rem; margin:0;">RIVERSE Inc. — 4대 플랫폼 자동 수집 시스템</p>
     </div>
     ''', unsafe_allow_html=True)
 
