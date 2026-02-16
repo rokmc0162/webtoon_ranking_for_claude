@@ -6,6 +6,7 @@
 - 단일 페이지에 200개 표시, 상위 50개 사용
 - IP 제한 없음
 - 셀렉터: li.search_result_box (2026년 현재 구조)
+- 카테고리별 랭킹: /search/purpose/ranking/{slug}/ 경로로 구분
 """
 
 import re
@@ -16,7 +17,18 @@ from crawler.agents.base_agent import CrawlerAgent
 
 
 class CmoaAgent(CrawlerAgent):
-    """코믹시모아 종합 랭킹 크롤러 에이전트"""
+    """코믹시모아 종합 + 카테고리별 랭킹 크롤러 에이전트"""
+
+    # 카테고리별 랭킹 매핑 (URL: /ranking/{slug}/)
+    GENRE_RANKINGS = {
+        '': {'name': '종합', 'slug': 'all'},
+        '少年マンガ': {'name': '소년만화', 'slug': 'boy'},
+        '青年マンガ': {'name': '청년만화', 'slug': 'gentle'},
+        '少女マンガ': {'name': '소녀만화', 'slug': 'girl'},
+        '女性マンガ': {'name': '여성만화', 'slug': 'lady'},
+        'BL': {'name': 'BL', 'slug': 'boyslove'},
+        'TL': {'name': 'TL', 'slug': 'teenslove'},
+    }
 
     def __init__(self):
         super().__init__(
@@ -24,10 +36,11 @@ class CmoaAgent(CrawlerAgent):
             platform_name='코믹시모아 (종합)',
             url='https://www.cmoa.jp/search/purpose/ranking/all/'
         )
+        self.genre_results = {}
 
     async def crawl(self, browser: Browser) -> List[Dict[str, Any]]:
         """
-        코믹시모아 종합 랭킹 50위 크롤링
+        코믹시모아 종합 + 카테고리별 랭킹 크롤링
 
         DOM 구조:
         <li class="search_result_box">
@@ -51,33 +64,43 @@ class CmoaAgent(CrawlerAgent):
         """
         context = await browser.new_context(ignore_https_errors=True)
         page = await context.new_page()
-        rankings = []
+        all_rankings = []
 
         try:
-            self.logger.info(f"📱 {self.platform_name} 크롤링 중...")
-            self.logger.info(f"   URL: {self.url}")
+            for genre_key, genre_info in self.GENRE_RANKINGS.items():
+                label = genre_info['name']
+                slug = genre_info['slug']
+                url = f'https://www.cmoa.jp/search/purpose/ranking/{slug}/'
 
-            await page.goto(self.url, wait_until='domcontentloaded', timeout=20000)
-            await page.wait_for_selector('li.search_result_box', timeout=10000)
-            await page.wait_for_timeout(1000)
+                self.logger.info(f"📱 코믹시모아 [{label}] 크롤링 중... → {url}")
 
-            items = await page.query_selector_all('li.search_result_box')
-            self.logger.info(f"   작품 요소 {len(items)}개 발견")
+                await page.goto(url, wait_until='domcontentloaded', timeout=20000)
+                await page.wait_for_selector('li.search_result_box', timeout=10000)
+                await page.wait_for_timeout(1000)
 
-            for item in items[:50]:
-                try:
-                    entry = await self._parse_item(item)
-                    if entry:
-                        rankings.append(entry)
-                except Exception as e:
-                    self.logger.debug(f"작품 파싱 실패: {e}")
-                    continue
+                items = await page.query_selector_all('li.search_result_box')
+                self.logger.info(f"   작품 요소 {len(items)}개 발견")
 
-            # 순위 정렬
-            rankings.sort(key=lambda x: x['rank'])
+                rankings = []
+                for item in items[:50]:
+                    try:
+                        entry = await self._parse_item(item)
+                        if entry:
+                            if genre_key and not entry['genre']:
+                                entry['genre'] = genre_key
+                            rankings.append(entry)
+                    except Exception as e:
+                        self.logger.debug(f"작품 파싱 실패: {e}")
+                        continue
 
-            self.logger.info(f"   ✅ {self.platform_name}: {len(rankings)}개 작품 수집 완료")
-            return rankings
+                rankings.sort(key=lambda x: x['rank'])
+                self.genre_results[genre_key] = rankings
+                self.logger.info(f"   ✅ [{label}]: {len(rankings)}개 작품")
+
+                if genre_key == '':
+                    all_rankings = rankings
+
+            return all_rankings
 
         finally:
             await page.close()
@@ -146,6 +169,36 @@ class CmoaAgent(CrawlerAgent):
             'thumbnail_url': thumbnail_url,
         }
 
+    async def save(self, date: str, data: List[Dict[str, Any]]):
+        """종합 + 카테고리별 랭킹 모두 저장"""
+        from crawler.db import save_rankings, backup_to_json, save_works_metadata
+
+        # 종합 랭킹 저장
+        save_rankings(date, self.platform_id, data, sub_category='')
+        works_meta = [
+            {'title': item['title'], 'thumbnail_url': item.get('thumbnail_url', ''),
+             'url': item.get('url', '')}
+            for item in data if item.get('thumbnail_url')
+        ]
+        if works_meta:
+            save_works_metadata(self.platform_id, works_meta)
+        backup_to_json(date, self.platform_id, data)
+
+        # 카테고리별 랭킹 저장
+        for genre_key, rankings in self.genre_results.items():
+            if genre_key == '':
+                continue
+            genre_name = self.GENRE_RANKINGS[genre_key]['name']
+            save_rankings(date, self.platform_id, rankings, sub_category=genre_key)
+            genre_meta = [
+                {'title': item['title'], 'thumbnail_url': item.get('thumbnail_url', ''),
+                 'url': item.get('url', '')}
+                for item in rankings if item.get('thumbnail_url')
+            ]
+            if genre_meta:
+                save_works_metadata(self.platform_id, genre_meta)
+            self.logger.info(f"   💾 [{genre_name}]: {len(rankings)}개 저장")
+
 
 if __name__ == "__main__":
     import asyncio
@@ -172,6 +225,11 @@ if __name__ == "__main__":
                         print(f"  {item['rank']}위: {item['title'][:40]}")
                         print(f"    장르: {item['genre']}")
                         print(f"    URL: {item['url']}")
+
+                    print(f"\n카테고리별 결과:")
+                    for gkey, rankings in agent.genre_results.items():
+                        label = agent.GENRE_RANKINGS[gkey]['name']
+                        print(f"  [{label}]: {len(rankings)}개")
                 else:
                     print(f"\n❌ Error: {result.error}")
 

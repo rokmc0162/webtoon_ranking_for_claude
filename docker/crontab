@@ -1,0 +1,16 @@
+# 웹툰 랭킹 크롤러 스케줄 (JST 기준)
+# 환경변수 전달 (cron은 기본 환경이 비어있음)
+SHELL=/bin/bash
+PATH=/usr/local/bin:/usr/bin:/bin
+LANG=ko_KR.UTF-8
+PYTHONUNBUFFERED=1
+
+# 매일 9시/15시/21시 크롤링
+0 9 * * * cd /app && python3 crawler/main.py >> /app/logs/crawler_$(date +\%Y-\%m-\%d).log 2>&1
+0 15 * * * cd /app && python3 crawler/main.py >> /app/logs/crawler_$(date +\%Y-\%m-\%d).log 2>&1
+0 21 * * * cd /app && python3 crawler/main.py >> /app/logs/crawler_$(date +\%Y-\%m-\%d).log 2>&1
+
+# 매일 새벽 3시 — 30일 이상 된 로그 정리
+0 3 * * * find /app/logs -name "crawler_*.log" -mtime +30 -delete 2>/dev/null
+
+# cron 요구: 파일 끝에 빈 줄 필수

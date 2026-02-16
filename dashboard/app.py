@@ -17,6 +17,8 @@ import urllib.parse
 import ssl
 import html as html_module
 import json
+import subprocess
+import sys
 
 # 프로젝트 루트
 project_root = Path(__file__).parent.parent
@@ -37,25 +39,25 @@ PLATFORMS = {
     'piccoma': {
         'name': '픽코마',
         'color': '#FF6B6B',
-        'logo': 'docs/픽코마.webp',
+        'logo': 'docs/piccoma.webp',
         'source_url': 'https://piccoma.com/web/ranking/S/P/0',
     },
     'linemanga': {
         'name': '라인망가',
         'color': '#06C755',
-        'logo': 'docs/라인망가.png',
+        'logo': 'docs/linemanga.png',
         'source_url': 'https://manga.line.me/periodic/gender_ranking?gender=0',
     },
     'mechacomic': {
         'name': '메챠코믹',
         'color': '#4A90D9',
-        'logo': 'docs/메챠코믹.png',
+        'logo': 'docs/mechacomic.png',
         'source_url': 'https://mechacomic.jp/sales_rankings/current',
     },
     'cmoa': {
         'name': '코믹시모아',
         'color': '#F5A623',
-        'logo': 'docs/시모아.jpg',
+        'logo': 'docs/cmoa.jpg',
         'source_url': 'https://www.cmoa.jp/search/purpose/ranking/all/',
     },
 }
@@ -131,20 +133,10 @@ footer { display: none !important; }
     flex: 1 1 0 !important;
 }
 
-/* ===== 장르 탭: 가로 스크롤 + 작은 버튼 ===== */
-[data-testid="stHorizontalBlock"]:has([data-testid="stButton"] button[kind="primary"]):not(:has(.pcard-logo)) {
-    flex-wrap: nowrap !important;
-    overflow-x: auto !important;
-    gap: 4px !important;
-}
-[data-testid="stHorizontalBlock"]:has([data-testid="stButton"] button[kind="primary"]):not(:has(.pcard-logo)) > [data-testid="stColumn"] {
-    min-width: 0 !important;
-    flex: 0 0 auto !important;
-}
-[data-testid="stHorizontalBlock"]:has([data-testid="stButton"] button[kind="primary"]):not(:has(.pcard-logo)) button {
-    padding: 4px 10px !important;
+/* ===== 장르 pills: 컴팩트 스타일 ===== */
+[data-testid="stPills"] button {
     font-size: 12px !important;
-    min-height: 32px !important;
+    padding: 4px 12px !important;
 }
 </style>
 """, unsafe_allow_html=True)
@@ -243,6 +235,21 @@ def get_rank_history(title: str, platform: str, days: int = 30) -> pd.DataFrame:
     ''', conn, params=(title, platform, days))
     conn.close()
     return df.sort_values('date')
+
+
+def get_riverse_counts_by_genre(date: str, platform: str) -> dict:
+    """장르(sub_category)별 리버스 작품 수 반환"""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute('''
+        SELECT COALESCE(sub_category, ''), COUNT(*)
+        FROM rankings
+        WHERE date = ? AND platform = ? AND is_riverse = 1
+        GROUP BY COALESCE(sub_category, '')
+    ''', (date, platform))
+    result = {row[0]: row[1] for row in cursor.fetchall()}
+    conn.close()
+    return result
 
 
 def get_platform_stats(date: str) -> dict:
@@ -351,8 +358,9 @@ def get_rank_histories_batch(titles: list, platform: str, days: int = 30) -> dic
     histories = {}
     for title in titles:
         df = pd.read_sql_query('''
-            SELECT date, rank FROM rankings
+            SELECT date, MIN(rank) as rank FROM rankings
             WHERE title = ? AND platform = ?
+            GROUP BY date
             ORDER BY date DESC LIMIT ?
         ''', conn, params=(title, platform, days))
         if not df.empty:
@@ -450,7 +458,7 @@ def build_ranking_html(df: pd.DataFrame, platform: str, thumbnails: dict,
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
 * {{ margin: 0; padding: 0; box-sizing: border-box; }}
-body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: white; }}
+body {{ font-family: 'Meiryo', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: white; }}
 
 table {{
     width: 100%;
@@ -875,13 +883,30 @@ document.addEventListener('keydown', function(e) {{
 # =============================================================================
 
 def main():
-    # 헤더 (리버스 로고 + 제목, 공백 최소화)
-    st.markdown(f'''
-    <div style="display:flex; align-items:center; justify-content:center; gap:8px; padding:0.3rem 0 0.4rem 0;">
-        <img src="{RIVERSE_LOGO}" style="height:22px; width:auto;">
-        <span style="font-size:1.2rem; font-weight:700; color:#1F2937;">일본 랭킹 아카이브</span>
-    </div>
-    ''', unsafe_allow_html=True)
+    # 헤더 (리버스 로고 + 제목 + 크롤링 버튼)
+    col_header, col_crawl = st.columns([5, 1])
+    with col_header:
+        st.markdown(f'''
+        <div style="display:flex; align-items:center; justify-content:center; gap:10px; padding:0.3rem 0 0.4rem 0;">
+            <img src="{RIVERSE_LOGO}" style="height:32px; width:auto;">
+            <span style="font-size:1.2rem; font-weight:700; color:#1F2937;">일본 랭킹 아카이브</span>
+        </div>
+        ''', unsafe_allow_html=True)
+    with col_crawl:
+        if st.button("🔄 크롤링", help="수동으로 크롤링을 실행합니다"):
+            with st.spinner("크롤링 중... (5~10분 소요)"):
+                result = subprocess.run(
+                    [sys.executable, "crawler/main.py"],
+                    cwd=str(project_root),
+                    capture_output=True, text=True, timeout=900
+                )
+            if result.returncode == 0:
+                st.success("크롤링 완료!")
+                st.rerun()
+            else:
+                st.error("크롤링 실패")
+                with st.expander("오류 로그"):
+                    st.code(result.stderr or result.stdout)
 
     # 날짜 확인
     dates = get_available_dates()
@@ -890,24 +915,22 @@ def main():
         st.code("python3 crawler/main.py", language="bash")
         st.stop()
 
-    # 날짜 선택 + 새로고침 + 출처 링크
-    col_date, col_refresh, col_source = st.columns([2, 1, 2])
+    # 날짜 선택 + 출처 링크
+    col_date, col_source = st.columns([1, 2])
     with col_date:
         selected_date = st.selectbox(
             "날짜", dates,
             format_func=lambda x: f"{x} ({datetime.strptime(x, '%Y-%m-%d').strftime('%A')})",
             label_visibility="collapsed"
         )
-    with col_refresh:
-        if st.button("🔄", use_container_width=True):
-            st.rerun()
     with col_source:
         platform_key = st.session_state.get('selected_platform', 'piccoma')
         src_url = PLATFORMS.get(platform_key, {}).get('source_url', '')
         src_name = PLATFORMS.get(platform_key, {}).get('name', '')
         st.markdown(
+            f'<div style="text-align:right;">'
             f'<a href="{src_url}" target="_blank" style="font-size:13px; color:#6B7280; text-decoration:none;">'
-            f'📎 데이터 출처: {src_name}</a>',
+            f'📎 데이터 출처: {src_name}</a></div>',
             unsafe_allow_html=True
         )
 
@@ -982,32 +1005,42 @@ def main():
             ('恋愛', '연애'), ('スポーツ', '스포츠'), ('ミステリー・ホラー', '미스터리/호러'),
             ('裏社会・アングラ', '뒷세계'), ('ヒューマンドラマ', '휴먼드라마'),
             ('歴史・時代', '역사/시대'), ('コメディ・ギャグ', '코미디/개그'),
-            ('BL', 'BL'), ('TL', 'TL'), ('その他', '기타'),
+            ('その他', '기타'),
         ],
         'mechacomic': [
             ('', '종합'), ('少女', '소녀'), ('女性', '여성'),
             ('少年', '소년'), ('青年', '청년'), ('ハーレクイン', '할리퀸'),
+        ],
+        'cmoa': [
+            ('', '종합'), ('少年マンガ', '소년만화'), ('青年マンガ', '청년만화'),
+            ('少女マンガ', '소녀만화'), ('女性マンガ', '여성만화'),
+            ('BL', 'BL'), ('TL', 'TL'),
         ],
     }
 
     sub_category = ''
     genres = PLATFORM_GENRES.get(platform)
     if genres:
-        session_key = f'{platform}_genre'
-        if session_key not in st.session_state:
-            st.session_state[session_key] = ''
+        # 장르별 리버스 작품 수 조회
+        riverse_counts = get_riverse_counts_by_genre(selected_date, platform)
 
-        # 장르 탭을 가로 버튼으로 표시
-        genre_cols = st.columns(len(genres))
-        for i, (gkey, glabel) in enumerate(genres):
-            with genre_cols[i]:
-                is_active_genre = (st.session_state[session_key] == gkey)
-                btn_type = "primary" if is_active_genre else "secondary"
-                if st.button(glabel, key=f"genre_{platform}_{gkey}", use_container_width=True, type=btn_type):
-                    st.session_state[session_key] = gkey
-                    st.rerun()
+        # 장르 키 리스트 + 표시 포맷 함수
+        genre_keys = [gkey for gkey, _ in genres]
+        genre_label_map = dict(genres)
 
-        sub_category = st.session_state[session_key]
+        def format_genre(gkey):
+            glabel = genre_label_map.get(gkey, gkey)
+            count = riverse_counts.get(gkey, 0)
+            return f"{glabel}({count})" if count > 0 else glabel
+
+        selected_genre = st.pills(
+            "장르", genre_keys,
+            default=genre_keys[0],
+            format_func=format_genre,
+            key=f"genre_pills_{platform}",
+            label_visibility="collapsed"
+        )
+        sub_category = selected_genre if selected_genre is not None else ''
 
     df = load_rankings(selected_date, platform, sub_category)
 
@@ -1019,16 +1052,30 @@ def main():
     genre_label = ''
     if sub_category and genres:
         genre_label = f" [{dict(genres).get(sub_category, '')}]"
-    col_title, col_filter = st.columns([3, 1])
+    col_title, col_filter = st.columns([2.5, 1.5])
     with col_title:
         st.markdown(f"**{pinfo['name']}{genre_label}** 랭킹 TOP {len(df)} — {selected_date}")
     with col_filter:
+        # 리버스 로고를 체크박스 라벨 앞에 CSS로 삽입
         st.markdown(
-            f'<div style="display:flex; align-items:center; gap:4px; margin-bottom:-10px;">'
-            f'<img src="{RIVERSE_LOGO}" style="height:16px; width:auto;"></div>',
+            f'''<style>
+            [data-testid="stCheckbox"] label p {{
+                display: inline-flex !important;
+                align-items: center !important;
+                gap: 5px !important;
+            }}
+            [data-testid="stCheckbox"] label p::before {{
+                content: "";
+                display: inline-block;
+                width: 16px;
+                height: 16px;
+                background: url("{RIVERSE_LOGO}") center/contain no-repeat;
+                flex-shrink: 0;
+            }}
+            </style>''',
             unsafe_allow_html=True
         )
-        show_riverse = st.checkbox("RIVERSE만", key="riverse_filter",
+        show_riverse = st.checkbox("리버스 작품만 보기", key="riverse_filter",
                                            value=st.session_state.riverse_only,
                                            on_change=lambda: setattr(st.session_state, 'riverse_only',
                                                                      not st.session_state.riverse_only))

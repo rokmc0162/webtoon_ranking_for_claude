@@ -5,11 +5,10 @@
 - SSR+CSR 하이브리드 (domcontentloaded로 충분)
 - 일본 IP 필수
 - 90개 작품이 한 페이지에 로드됨 (스크롤 불필요)
-- 셀렉터: .MdCMN05List ol > li (2026년 현재 구조)
-- 장르별 랭킹: JSON API (/api/ranking/product_genre_weekly_ranking) 활용
+- 종합: /periodic/gender_ranking?gender=0 (ol > li, MdCMN14Num 순위 있음)
+- 장르별: /genre_list?genre_id=XXXX (순위 번호 없음, 위치 기반)
 """
 
-import json
 from typing import List, Dict, Any
 from playwright.async_api import Browser
 
@@ -19,7 +18,7 @@ from crawler.agents.base_agent import CrawlerAgent
 class LinemangaAgent(CrawlerAgent):
     """라인망가 웹 종합 + 장르별 랭킹 크롤러 에이전트"""
 
-    # 장르별 랭킹 URL 매핑 (product_genre_weekly_ranking API)
+    # 장르별 랭킹 URL 매핑 (/genre_list?genre_id=XXXX)
     GENRE_RANKINGS = {
         '': {'name': '총합'},
         'バトル・アクション': {'name': '배틀/액션', 'genre_id': '0001'},
@@ -31,9 +30,7 @@ class LinemangaAgent(CrawlerAgent):
         'ヒューマンドラマ': {'name': '휴먼드라마', 'genre_id': '0007'},
         '歴史・時代': {'name': '역사/시대', 'genre_id': '0008'},
         'コメディ・ギャグ': {'name': '코미디/개그', 'genre_id': '0009'},
-        'BL': {'name': 'BL', 'genre_id': '0010'},
-        'TL': {'name': 'TL', 'genre_id': '0011'},
-        'その他': {'name': '기타', 'genre_id': '0013'},
+        'その他': {'name': '기타', 'genre_id': 'ffff'},
     }
 
     def __init__(self):
@@ -48,7 +45,7 @@ class LinemangaAgent(CrawlerAgent):
         """
         라인망가 웹 종합 + 장르별 랭킹 크롤링
 
-        DOM 구조 (종합):
+        종합 DOM 구조 (/periodic/gender_ranking):
         <div class="MdCMN05List">
           <ol>
             <li>
@@ -58,18 +55,28 @@ class LinemangaAgent(CrawlerAgent):
                 <span class="mdCMN05Ttl">제목</span>
                 <ul class="mdCMN05InfoList">
                   <li>ファンタジー・SF</li>
-                  <li>毎週金曜更新</li>
                 </ul>
               </a>
             </li>
           </ol>
         </div>
+
+        장르별 DOM 구조 (/genre_list?genre_id=XXXX):
+        <div class="MdCMN05List">
+          <li>
+            <a href="/product/periodic?id=..." title="제목">
+              <div class="MdCMN06Img"><img alt="제목" src="..."></div>
+              <span class="mdCMN05Ttl">제목</span>
+            </a>
+          </li>
+        </div>
+        (순위 번호 없음 - 위치 기반으로 순위 결정)
         """
         page = await browser.new_page()
         all_rankings = []
 
         try:
-            # ===== 1. 종합 랭킹 (기존 방식: periodic/gender_ranking) =====
+            # ===== 1. 종합 랭킹 (/periodic/gender_ranking) =====
             self.logger.info(f"📱 라인망가 [총합] 크롤링 중...")
             self.logger.info(f"   URL: {self.url}")
 
@@ -101,7 +108,7 @@ class LinemangaAgent(CrawlerAgent):
             self.logger.info(f"   ✅ [총합]: {len(all_rankings)}개 작품")
             self.genre_results[''] = all_rankings
 
-            # ===== 2. 장르별 랭킹 (JSON API: product_genre_weekly_ranking) =====
+            # ===== 2. 장르별 랭킹 (/genre_list?genre_id=XXXX 페이지 직접 크롤링) =====
             for genre_key, genre_info in self.GENRE_RANKINGS.items():
                 if genre_key == '':
                     continue
@@ -111,7 +118,7 @@ class LinemangaAgent(CrawlerAgent):
                 self.logger.info(f"📱 라인망가 [{label}] 크롤링 중...")
 
                 try:
-                    rankings = await self._crawl_genre_api(page, genre_id, genre_key)
+                    rankings = await self._crawl_genre_page(page, genre_id, genre_key)
                     self.genre_results[genre_key] = rankings
                     self.logger.info(f"   ✅ [{label}]: {len(rankings)}개 작품")
                 except Exception as e:
@@ -174,36 +181,61 @@ class LinemangaAgent(CrawlerAgent):
             'thumbnail_url': thumbnail_url,
         }
 
-    async def _crawl_genre_api(self, page, genre_id: str, genre_key: str) -> List[Dict[str, Any]]:
-        """JSON API로 장르별 랭킹 수집 (product_genre_weekly_ranking)"""
-        api_url = f"https://manga.line.me/api/ranking/product_genre_weekly_ranking?genre_id={genre_id}&page=1&rows=50"
+    async def _crawl_genre_page(self, page, genre_id: str, genre_key: str) -> List[Dict[str, Any]]:
+        """장르별 랭킹 페이지 직접 크롤링 (/genre_list?genre_id=XXXX)"""
+        url = f"https://manga.line.me/genre_list?genre_id={genre_id}"
 
-        # 이미 manga.line.me 도메인에 있으므로 fetch 사용 가능
-        json_data = await page.evaluate('''
-            async (url) => {
-                const resp = await fetch(url);
-                return await resp.json();
-            }
-        ''', api_url)
+        await page.goto(url, wait_until='domcontentloaded', timeout=30000)
+        await page.wait_for_selector('a[href*="/product/"]', timeout=15000)
+        await page.wait_for_timeout(2000)
+
+        # 장르 페이지에서 product 링크를 가진 아이템 추출
+        # .MdCMN05List 내의 a[href*="/product/"] 요소들
+        product_links = await page.query_selector_all('.MdCMN05List a[href*="/product/"]')
+        self.logger.info(f"   상품 링크 {len(product_links)}개 발견")
 
         rankings = []
-        rows = json_data.get('result', {}).get('rows', [])
-        for i, row in enumerate(rows[:50], 1):
-            title = row.get('name', '')
-            if not title:
+        seen_titles = set()
+        rank = 0
+
+        for link in product_links:
+            try:
+                # 제목: title 속성
+                title = await link.get_attribute('title')
+                if not title:
+                    img = await link.query_selector('img')
+                    if img:
+                        title = await img.get_attribute('alt') or ''
+                if not title or title in seen_titles:
+                    continue
+
+                seen_titles.add(title)
+                rank += 1
+
+                # URL
+                href = await link.get_attribute('href') or ''
+                item_url = f"https://manga.line.me{href}" if href and not href.startswith('http') else href
+
+                # 썸네일
+                thumbnail_url = ''
+                thumb_img = await link.query_selector('.MdCMN06Img img')
+                if thumb_img:
+                    thumbnail_url = await thumb_img.get_attribute('src') or ''
+
+                rankings.append({
+                    'rank': rank,
+                    'title': title.strip(),
+                    'genre': genre_key,
+                    'url': item_url,
+                    'thumbnail_url': thumbnail_url,
+                })
+
+                if rank >= 50:
+                    break
+
+            except Exception as e:
+                self.logger.debug(f"장르 아이템 파싱 실패: {e}")
                 continue
-
-            product_id = row.get('id', '')
-            url = f"https://manga.line.me/book/product_list?product_id={product_id}" if product_id else ''
-            thumbnail = row.get('thumbnail', '')
-
-            rankings.append({
-                'rank': row.get('rank', i),
-                'title': title,
-                'genre': genre_key,
-                'url': url,
-                'thumbnail_url': thumbnail,
-            })
 
         return rankings
 

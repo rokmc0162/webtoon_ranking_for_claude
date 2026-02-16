@@ -1,0 +1,13 @@
+services:
+  webtoon-ranking:
+    build: .
+    container_name: webtoon-ranking
+    restart: unless-stopped
+    ports:
+      - "8501:8501"
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+    environment:
+      - LANG=ko_KR.UTF-8
+      - TZ=Asia/Tokyo
