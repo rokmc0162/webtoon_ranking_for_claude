@@ -19,14 +19,14 @@ from crawler.agents.base_agent import CrawlerAgent
 class MechacomicAgent(CrawlerAgent):
     """메챠코믹 판매 랭킹 + 카테고리별 크롤러 에이전트"""
 
-    # 카테고리별 랭킹 매핑
+    # 카테고리별 랭킹 매핑 (URL: ?genre=N)
     GENRE_RANKINGS = {
-        '': {'name': '종합', 'category': ''},
-        '少女': {'name': '소녀', 'category': 'shojo'},
-        '女性': {'name': '여성', 'category': 'josei'},
-        '少年': {'name': '소년', 'category': 'shonen'},
-        '青年': {'name': '청년', 'category': 'seinen'},
-        'ハーレクイン': {'name': '할리퀸', 'category': 'harlequin'},
+        '': {'name': '종합', 'genre_id': ''},
+        '少女': {'name': '소녀', 'genre_id': '2'},
+        '女性': {'name': '여성', 'genre_id': '4'},
+        '少年': {'name': '소년', 'genre_id': '1'},
+        '青年': {'name': '청년', 'genre_id': '3'},
+        'ハーレクイン': {'name': '할리퀸', 'genre_id': '40'},
     }
 
     def __init__(self):
@@ -64,10 +64,10 @@ class MechacomicAgent(CrawlerAgent):
         try:
             for genre_key, genre_info in self.GENRE_RANKINGS.items():
                 label = genre_info['name']
-                category = genre_info['category']
+                genre_id = genre_info['genre_id']
                 self.logger.info(f"📱 메챠코믹 [{label}] 크롤링 중...")
 
-                rankings = await self._crawl_category(page, category, genre_key)
+                rankings = await self._crawl_category(page, genre_id, genre_key)
                 self.genre_results[genre_key] = rankings
                 self.logger.info(f"   ✅ [{label}]: {len(rankings)}개 작품")
 
@@ -80,22 +80,23 @@ class MechacomicAgent(CrawlerAgent):
         finally:
             await page.close()
 
-    async def _crawl_category(self, page, category: str, genre_key: str) -> List[Dict[str, Any]]:
+    async def _crawl_category(self, page, genre_id: str, genre_key: str) -> List[Dict[str, Any]]:
         """특정 카테고리의 랭킹 크롤링 (3페이지, 상위 50개)"""
         rankings = []
 
         for page_num in range(1, 4):
-            # URL 구성: category + page 파라미터
+            # URL 구성: genre + page 파라미터
             params = []
-            if category:
-                params.append(f'category={category}')
+            if genre_id:
+                params.append(f'genre={genre_id}')
             if page_num > 1:
                 params.append(f'page={page_num}')
             url = f'{self.url}?{"&".join(params)}' if params else self.url
 
+            await page.goto('about:blank')
             await page.goto(url, wait_until='domcontentloaded', timeout=30000)
             await page.wait_for_selector('ul.grid li', timeout=15000)
-            await page.wait_for_timeout(1500)
+            await page.wait_for_timeout(2000)
 
             items = await page.query_selector_all('ul.grid.grid-cols-1 > li')
 
