@@ -24,7 +24,7 @@ project_root = Path(__file__).parent.parent
 # 페이지 설정
 st.set_page_config(
     page_title="일본 웹툰 랭킹",
-    page_icon="📊",
+    page_icon=str(project_root / 'docs' / 'riverse_logo.png'),
     layout="wide",
     initial_sidebar_state="collapsed"
 )
@@ -72,6 +72,7 @@ def _load_logo_base64(rel_path: str) -> str:
 
 # 로고 base64 캐싱 (앱 시작 시 1회)
 PLATFORM_LOGOS = {pid: _load_logo_base64(info['logo']) for pid, info in PLATFORMS.items()}
+RIVERSE_LOGO = _load_logo_base64('docs/riverse_logo.png')
 
 # =============================================================================
 # 커스텀 CSS
@@ -357,7 +358,7 @@ def build_ranking_html(df: pd.DataFrame, platform: str, thumbnails: dict,
 
         # 작품명 (링크 + 리버스 마크)
         title_escaped = html_module.escape(title)
-        riverse_mark = ' <span class="riverse">⭐</span>' if is_riverse else ''
+        riverse_mark = f' <img src="{RIVERSE_LOGO}" class="riverse-badge">' if is_riverse else ''
         if url:
             title_html = f'<a href="{html_module.escape(url)}" target="_blank" class="title-link">{title_escaped}</a>{riverse_mark}'
         else:
@@ -472,7 +473,10 @@ td {{
 .title-link:hover {{
     color: {platform_color}; text-decoration: underline;
 }}
-.riverse {{ font-size: 13px; }}
+.riverse-badge {{
+    height: 14px; width: auto; vertical-align: middle;
+    margin-left: 4px; opacity: 0.85;
+}}
 
 .col-kr {{ color: #6B7280; font-size: 14px; min-width: 120px; }}
 
@@ -906,7 +910,7 @@ def main():
     with col_title:
         st.markdown(f"**{pinfo['name']}** 랭킹 TOP {len(df)} — {selected_date}")
     with col_filter:
-        show_riverse = st.checkbox("⭐ 리버스만", key="riverse_filter")
+        show_riverse = st.checkbox("RIVERSE만", key="riverse_filter")
 
     if show_riverse:
         df = df[df['is_riverse'] == 1].reset_index(drop=True)
