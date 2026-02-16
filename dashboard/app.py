@@ -103,12 +103,12 @@ footer { display: none !important; }
 .stMarkdown { min-height: 0 !important; }
 
 /* ===== 플랫폼 카드: 투명 버튼을 카드 위로 겹치기 ===== */
-[data-testid="stVerticalBlock"]:has(.pcard-logo) [data-testid="stElementContainer"]:has([data-testid="stButton"]) {
+[data-testid="stColumn"]:has(.pcard-logo) [data-testid="stElementContainer"]:has([data-testid="stButton"]) {
     margin-top: -100px !important;
     position: relative;
     z-index: 5;
 }
-[data-testid="stVerticalBlock"]:has(.pcard-logo) [data-testid="stButton"] button {
+[data-testid="stColumn"]:has(.pcard-logo) [data-testid="stButton"] button {
     opacity: 0 !important;
     min-height: 98px !important;
     cursor: pointer !important;
@@ -968,35 +968,42 @@ def main():
     platform = st.session_state.selected_platform
     pinfo = PLATFORMS[platform]
 
-    # 픽코마: 장르별 탭 표시
-    PICCOMA_GENRES = [
-        ('', '총합'), ('ファンタジー', '판타지'), ('恋愛', '연애'),
-        ('アクション', '액션'), ('ドラマ', '드라마'),
-        ('ホラー・ミステリー', '호러/미스터리'), ('裏社会・アングラ', '뒷세계'),
-        ('スポーツ', '스포츠'), ('グルメ', '요리'), ('日常', '일상'),
-        ('TL', 'TL'), ('BL', 'BL'),
-    ]
+    # 플랫폼별 장르 설정
+    PLATFORM_GENRES = {
+        'piccoma': [
+            ('', '총합'), ('ファンタジー', '판타지'), ('恋愛', '연애'),
+            ('アクション', '액션'), ('ドラマ', '드라마'),
+            ('ホラー・ミステリー', '호러/미스터리'), ('裏社会・アングラ', '뒷세계'),
+            ('スポーツ', '스포츠'), ('グルメ', '요리'), ('日常', '일상'),
+            ('TL', 'TL'), ('BL', 'BL'),
+        ],
+        'linemanga': [
+            ('', '총합'), ('バトル・アクション', '배틀/액션'), ('ファンタジー・SF', '판타지/SF'),
+            ('恋愛', '연애'), ('スポーツ', '스포츠'), ('ミステリー・ホラー', '미스터리/호러'),
+            ('裏社会・アングラ', '뒷세계'), ('ヒューマンドラマ', '휴먼드라마'),
+            ('歴史・時代', '역사/시대'), ('コメディ・ギャグ', '코미디/개그'),
+            ('BL', 'BL'), ('TL', 'TL'), ('その他', '기타'),
+        ],
+    }
 
     sub_category = ''
-    if platform == 'piccoma':
-        if 'piccoma_genre' not in st.session_state:
-            st.session_state.piccoma_genre = ''
-
-        genre_labels = [g[1] for g in PICCOMA_GENRES]
-        genre_keys = [g[0] for g in PICCOMA_GENRES]
-        current_idx = genre_keys.index(st.session_state.piccoma_genre) if st.session_state.piccoma_genre in genre_keys else 0
+    genres = PLATFORM_GENRES.get(platform)
+    if genres:
+        session_key = f'{platform}_genre'
+        if session_key not in st.session_state:
+            st.session_state[session_key] = ''
 
         # 장르 탭을 가로 버튼으로 표시
-        genre_cols = st.columns(len(PICCOMA_GENRES))
-        for i, (gkey, glabel) in enumerate(PICCOMA_GENRES):
+        genre_cols = st.columns(len(genres))
+        for i, (gkey, glabel) in enumerate(genres):
             with genre_cols[i]:
-                is_active_genre = (st.session_state.piccoma_genre == gkey)
+                is_active_genre = (st.session_state[session_key] == gkey)
                 btn_type = "primary" if is_active_genre else "secondary"
-                if st.button(glabel, key=f"genre_{gkey}", use_container_width=True, type=btn_type):
-                    st.session_state.piccoma_genre = gkey
+                if st.button(glabel, key=f"genre_{platform}_{gkey}", use_container_width=True, type=btn_type):
+                    st.session_state[session_key] = gkey
                     st.rerun()
 
-        sub_category = st.session_state.piccoma_genre
+        sub_category = st.session_state[session_key]
 
     df = load_rankings(selected_date, platform, sub_category)
 
@@ -1006,8 +1013,8 @@ def main():
 
     # 필터 바
     genre_label = ''
-    if platform == 'piccoma' and sub_category:
-        genre_label = f" [{dict(PICCOMA_GENRES).get(sub_category, '')}]"
+    if sub_category and genres:
+        genre_label = f" [{dict(genres).get(sub_category, '')}]"
     col_title, col_filter = st.columns([3, 1])
     with col_title:
         st.markdown(f"**{pinfo['name']}{genre_label}** 랭킹 TOP {len(df)} — {selected_date}")
