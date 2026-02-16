@@ -510,15 +510,17 @@ td {{
     .thumb-empty {{ width: 36px; height: 50px; }}
 }}
 
-/* 모달 */
+/* 모달 — absolute 기반 (iframe 전체 높이 대응) */
 .modal-overlay {{
     display: none;
-    position: fixed;
+    position: absolute;
     top: 0; left: 0; right: 0; bottom: 0;
+    min-height: 100%;
     background: rgba(0,0,0,0.5);
     z-index: 1000;
     justify-content: center;
-    align-items: center;
+    align-items: flex-start;
+    padding-top: 60px;
 }}
 .modal-overlay.active {{
     display: flex;
@@ -529,10 +531,11 @@ td {{
     padding: 24px;
     width: 90%;
     max-width: 680px;
-    max-height: 85vh;
+    max-height: 80vh;
     overflow-y: auto;
     box-shadow: 0 20px 60px rgba(0,0,0,0.3);
-    position: relative;
+    position: sticky;
+    top: 60px;
 }}
 .modal-close {{
     position: absolute;
@@ -834,7 +837,7 @@ def main():
         st.stop()
 
     # 날짜 선택
-    col_date, col_refresh, col_info = st.columns([3, 1, 2])
+    col_date, col_refresh = st.columns([4, 1])
     with col_date:
         selected_date = st.selectbox(
             "날짜", dates,
@@ -844,8 +847,6 @@ def main():
     with col_refresh:
         if st.button("🔄 새로고침", use_container_width=True):
             st.rerun()
-    with col_info:
-        st.caption(f"📅 총 {len(dates)}일 데이터 수집됨")
 
     # 플랫폼 통계
     stats = get_platform_stats(selected_date)
@@ -932,8 +933,10 @@ def main():
     # HTML 테이블 렌더링
     table_html = build_ranking_html(df, platform, thumbnails, pinfo['color'],
                                      histories, title_kr_map)
-    # 고정 뷰포트 높이 (iframe 내부 스크롤) — position:fixed 모달이 보이는 영역에 정확히 표시됨
-    components.html(table_html, height=750, scrolling=True)
+    # iframe 높이를 콘텐츠에 맞춤 (내부 스크롤 없이 페이지 스크롤만 사용)
+    row_count = len(df)
+    iframe_height = 60 + row_count * 82  # 헤더 + 행당 높이
+    components.html(table_html, height=iframe_height, scrolling=False)
 
     # 푸터
     st.divider()
