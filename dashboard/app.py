@@ -130,6 +130,22 @@ footer { display: none !important; }
     min-width: 0 !important;
     flex: 1 1 0 !important;
 }
+
+/* ===== 장르 탭: 가로 스크롤 + 작은 버튼 ===== */
+[data-testid="stHorizontalBlock"]:has([data-testid="stButton"] button[kind="primary"]):not(:has(.pcard-logo)) {
+    flex-wrap: nowrap !important;
+    overflow-x: auto !important;
+    gap: 4px !important;
+}
+[data-testid="stHorizontalBlock"]:has([data-testid="stButton"] button[kind="primary"]):not(:has(.pcard-logo)) > [data-testid="stColumn"] {
+    min-width: 0 !important;
+    flex: 0 0 auto !important;
+}
+[data-testid="stHorizontalBlock"]:has([data-testid="stButton"] button[kind="primary"]):not(:has(.pcard-logo)) button {
+    padding: 4px 10px !important;
+    font-size: 12px !important;
+    min-height: 32px !important;
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -152,14 +168,14 @@ def get_available_dates():
     return dates
 
 
-def load_rankings(date: str, platform: str) -> pd.DataFrame:
+def load_rankings(date: str, platform: str, sub_category: str = '') -> pd.DataFrame:
     conn = get_db_connection()
     df = pd.read_sql_query('''
         SELECT rank, title, title_kr, genre, genre_kr, url, is_riverse
         FROM rankings
-        WHERE date = ? AND platform = ?
+        WHERE date = ? AND platform = ? AND COALESCE(sub_category, '') = ?
         ORDER BY rank
-    ''', conn, params=(date, platform))
+    ''', conn, params=(date, platform, sub_category))
 
     # 장르가 비어있는 작품은 works 캐시에서 보충
     missing_genre = df['genre'].isna() | (df['genre'] == '')
@@ -951,16 +967,50 @@ def main():
     # =========================================================================
     platform = st.session_state.selected_platform
     pinfo = PLATFORMS[platform]
-    df = load_rankings(selected_date, platform)
+
+    # 픽코마: 장르별 탭 표시
+    PICCOMA_GENRES = [
+        ('', '총합'), ('ファンタジー', '판타지'), ('恋愛', '연애'),
+        ('アクション', '액션'), ('ドラマ', '드라마'),
+        ('ホラー・ミステリー', '호러/미스터리'), ('裏社会・アングラ', '뒷세계'),
+        ('スポーツ', '스포츠'), ('グルメ', '요리'), ('日常', '일상'),
+        ('TL', 'TL'), ('BL', 'BL'),
+    ]
+
+    sub_category = ''
+    if platform == 'piccoma':
+        if 'piccoma_genre' not in st.session_state:
+            st.session_state.piccoma_genre = ''
+
+        genre_labels = [g[1] for g in PICCOMA_GENRES]
+        genre_keys = [g[0] for g in PICCOMA_GENRES]
+        current_idx = genre_keys.index(st.session_state.piccoma_genre) if st.session_state.piccoma_genre in genre_keys else 0
+
+        # 장르 탭을 가로 버튼으로 표시
+        genre_cols = st.columns(len(PICCOMA_GENRES))
+        for i, (gkey, glabel) in enumerate(PICCOMA_GENRES):
+            with genre_cols[i]:
+                is_active_genre = (st.session_state.piccoma_genre == gkey)
+                btn_type = "primary" if is_active_genre else "secondary"
+                if st.button(glabel, key=f"genre_{gkey}", use_container_width=True, type=btn_type):
+                    st.session_state.piccoma_genre = gkey
+                    st.rerun()
+
+        sub_category = st.session_state.piccoma_genre
+
+    df = load_rankings(selected_date, platform, sub_category)
 
     if df.empty:
         st.warning(f"{pinfo['name']} 데이터가 없습니다. 크롤링을 먼저 실행해주세요.")
         return
 
     # 필터 바
+    genre_label = ''
+    if platform == 'piccoma' and sub_category:
+        genre_label = f" [{dict(PICCOMA_GENRES).get(sub_category, '')}]"
     col_title, col_filter = st.columns([3, 1])
     with col_title:
-        st.markdown(f"**{pinfo['name']}** 랭킹 TOP {len(df)} — {selected_date}")
+        st.markdown(f"**{pinfo['name']}{genre_label}** 랭킹 TOP {len(df)} — {selected_date}")
     with col_filter:
         st.markdown(
             f'<div style="display:flex; align-items:center; gap:4px; margin-bottom:-10px;">'

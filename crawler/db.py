@@ -77,13 +77,52 @@ def init_db():
     except sqlite3.OperationalError:
         pass  # 이미 존재
 
+    # migration: rankings 테이블에 sub_category 컬럼 추가 + UNIQUE 제약조건 변경
+    try:
+        cursor.execute('ALTER TABLE rankings ADD COLUMN sub_category TEXT DEFAULT ""')
+        # 기존 UNIQUE(date, platform, rank) 제약조건은 테이블 재생성으로 변경
+        cursor.execute('ALTER TABLE rankings RENAME TO rankings_old')
+        cursor.execute('''
+            CREATE TABLE rankings (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                date TEXT NOT NULL,
+                platform TEXT NOT NULL,
+                sub_category TEXT DEFAULT "",
+                rank INTEGER NOT NULL,
+                title TEXT NOT NULL,
+                title_kr TEXT,
+                genre TEXT,
+                genre_kr TEXT,
+                url TEXT NOT NULL,
+                is_riverse BOOLEAN DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(date, platform, sub_category, rank)
+            )
+        ''')
+        cursor.execute('''
+            INSERT INTO rankings (id, date, platform, sub_category, rank, title, title_kr,
+                                  genre, genre_kr, url, is_riverse, created_at)
+            SELECT id, date, platform, "", rank, title, title_kr,
+                   genre, genre_kr, url, is_riverse, created_at
+            FROM rankings_old
+        ''')
+        cursor.execute('DROP TABLE rankings_old')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_date_platform ON rankings(date, platform)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_riverse ON rankings(is_riverse) WHERE is_riverse = 1')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_title ON rankings(title)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_date_platform_subcat ON rankings(date, platform, sub_category)')
+        print("✅ rankings 테이블 마이그레이션 완료 (sub_category 추가)")
+    except sqlite3.OperationalError:
+        pass  # 이미 sub_category 존재
+
     conn.commit()
     conn.close()
 
     print(f"✅ DB 초기화 완료: {DB_PATH}")
 
 
-def save_rankings(date: str, platform: str, rankings: List[Dict[str, Any]]):
+def save_rankings(date: str, platform: str, rankings: List[Dict[str, Any]],
+                   sub_category: str = ''):
     """
     랭킹 데이터 저장 (upsert 방식)
 
@@ -91,7 +130,7 @@ def save_rankings(date: str, platform: str, rankings: List[Dict[str, Any]]):
         date: 날짜 (YYYY-MM-DD)
         platform: 플랫폼 이름 (piccoma, linemanga, mechacomic, cmoa)
         rankings: 랭킹 데이터 리스트
-            [{'rank': 1, 'title': '제목', 'genre': '장르', 'url': 'http://...', ...}, ...]
+        sub_category: 서브 카테고리 (예: 'ファンタジー', '恋愛' 등, 기본: '' = 종합)
     """
     if not rankings:
         print(f"⚠️  {platform}: 저장할 데이터 없음")
@@ -114,11 +153,12 @@ def save_rankings(date: str, platform: str, rankings: List[Dict[str, Any]]):
         try:
             cursor.execute('''
                 INSERT OR REPLACE INTO rankings
-                (date, platform, rank, title, title_kr, genre, genre_kr, url, is_riverse)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                (date, platform, sub_category, rank, title, title_kr, genre, genre_kr, url, is_riverse)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''', (
                 date,
                 platform,
+                sub_category,
                 item['rank'],
                 item['title'],
                 title_kr,

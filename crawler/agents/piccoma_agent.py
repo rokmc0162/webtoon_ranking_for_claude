@@ -18,7 +18,23 @@ from crawler.utils import translate_genre
 
 
 class PiccomaAgent(CrawlerAgent):
-    """픽코마 SMARTOON 종합 랭킹 크롤러 에이전트"""
+    """픽코마 SMARTOON 종합 + 장르별 랭킹 크롤러 에이전트"""
+
+    # 장르별 랭킹 URL 매핑
+    GENRE_RANKINGS = {
+        '': {'name': '총합', 'path': '/web/ranking/S/P/0'},
+        'ファンタジー': {'name': '판타지', 'path': '/web/ranking/S/P/2'},
+        '恋愛': {'name': '연애', 'path': '/web/ranking/S/P/1'},
+        'アクション': {'name': '액션', 'path': '/web/ranking/S/P/5'},
+        'ドラマ': {'name': '드라마', 'path': '/web/ranking/S/P/3'},
+        'ホラー・ミステリー': {'name': '호러/미스터리', 'path': '/web/ranking/S/P/7'},
+        '裏社会・アングラ': {'name': '뒷세계/언더그라운드', 'path': '/web/ranking/S/P/9'},
+        'スポーツ': {'name': '스포츠', 'path': '/web/ranking/S/P/6'},
+        'グルメ': {'name': '요리', 'path': '/web/ranking/S/P/10'},
+        '日常': {'name': '일상', 'path': '/web/ranking/S/P/4'},
+        'TL': {'name': 'TL', 'path': '/web/ranking/S/P/13'},
+        'BL': {'name': 'BL', 'path': '/web/ranking/S/P/14'},
+    }
 
     def __init__(self):
         super().__init__(
@@ -26,58 +42,49 @@ class PiccomaAgent(CrawlerAgent):
             platform_name='픽코마 (SMARTOON)',
             url='https://piccoma.com/web/ranking/S/P/0'
         )
+        # 장르별 크롤링 결과 저장 (orchestrator에서 참조)
+        self.genre_results = {}
 
     async def crawl(self, browser: Browser) -> List[Dict[str, Any]]:
-        """
-        픽코마 SMARTOON 종합 랭킹 50위 크롤링
-
-        DOM 구조:
-        <div class="PCM-productTile PCOM-component">
-          <ul>
-            <li>
-              <a href="/web/product/{id}">
-                <img alt="제목" src="...">
-                <div class="PCM-rankingProduct_rankNum">1</div>
-                <div class="PCM-rankingProduct_rankChangeNum">11</div>
-                <div class="PCM-l_rankingProduct_name">제목</div>
-                <div class="PCM-l_rankingProduct_author">작가명</div>
-              </a>
-            </li>
-          </ul>
-        </div>
-        """
+        """픽코마 SMARTOON 종합 + 장르별 랭킹 크롤링"""
         page = await browser.new_page()
-        rankings = []
+        all_rankings = []
 
         try:
-            self.logger.info(f"📱 {self.platform_name} 크롤링 중...")
-            self.logger.info(f"   URL: {self.url}")
+            for genre_key, genre_info in PiccomaAgent.GENRE_RANKINGS.items():
+                url = f"https://piccoma.com{genre_info['path']}"
+                label = genre_info['name']
 
-            await page.goto(self.url, wait_until='domcontentloaded', timeout=30000)
+                self.logger.info(f"📱 픽코마 [{label}] 크롤링 중... → {url}")
 
-            # 랭킹 리스트 대기
-            await page.wait_for_selector('.PCM-productTile ul > li', timeout=10000)
-            await page.wait_for_timeout(1000)
+                await page.goto(url, wait_until='domcontentloaded', timeout=30000)
+                await page.wait_for_selector('.PCM-productTile ul > li', timeout=10000)
+                await page.wait_for_timeout(500)
 
-            # 작품 아이템 추출 (정확히 50개)
-            items = await page.query_selector_all('.PCM-productTile ul > li')
-            self.logger.info(f"   작품 요소 {len(items)}개 발견")
+                items = await page.query_selector_all('.PCM-productTile ul > li')
+                rankings = []
+                for item in items[:50]:
+                    try:
+                        entry = await self._parse_item(item)
+                        if entry:
+                            # 장르별 랭킹은 장르를 URL의 카테고리로 설정
+                            if genre_key and not entry['genre']:
+                                entry['genre'] = genre_key
+                            rankings.append(entry)
+                    except Exception:
+                        continue
 
-            for item in items[:50]:
-                try:
-                    entry = await self._parse_item(item)
-                    if entry:
-                        rankings.append(entry)
-                except Exception as e:
-                    self.logger.debug(f"작품 파싱 실패: {e}")
-                    continue
+                self.logger.info(f"   ✅ [{label}]: {len(rankings)}개 작품")
+                self.genre_results[genre_key] = rankings
 
-            self.logger.info(f"   ✅ {self.platform_name}: {len(rankings)}개 작품 수집 완료")
+                # 종합 랭킹은 all_rankings에 포함 (기존 호환)
+                if genre_key == '':
+                    all_rankings = rankings
 
-            # 장르 수집: 캐시에 없는 작품만 개별 페이지 방문
-            await self._fill_genres(browser, rankings)
+            # 장르 수집: 종합 랭킹 작품만 (장르별은 이미 장르 확정)
+            await self._fill_genres(browser, all_rankings)
 
-            return rankings
+            return all_rankings
 
         finally:
             await page.close()
@@ -183,6 +190,37 @@ class PiccomaAgent(CrawlerAgent):
             await page.close()
 
         self.logger.info(f"   📚 장르 수집 완료: {fetched}/{len(need_fetch)}개 성공")
+
+    async def save(self, date: str, data: List[Dict[str, Any]]):
+        """종합 + 장르별 랭킹 모두 저장"""
+        from crawler.db import save_rankings, backup_to_json, save_works_metadata
+
+        # 종합 랭킹 저장 (기존 방식)
+        save_rankings(date, self.platform_id, data, sub_category='')
+        works_meta = [
+            {'title': item['title'], 'thumbnail_url': item.get('thumbnail_url', ''),
+             'url': item.get('url', '')}
+            for item in data if item.get('thumbnail_url')
+        ]
+        if works_meta:
+            save_works_metadata(self.platform_id, works_meta)
+        backup_to_json(date, self.platform_id, data)
+
+        # 장르별 랭킹 저장
+        for genre_key, rankings in self.genre_results.items():
+            if genre_key == '':  # 종합은 위에서 이미 저장
+                continue
+            genre_name = PiccomaAgent.GENRE_RANKINGS[genre_key]['name']
+            save_rankings(date, self.platform_id, rankings, sub_category=genre_key)
+            # 장르별 작품의 메타데이터도 저장
+            genre_meta = [
+                {'title': item['title'], 'thumbnail_url': item.get('thumbnail_url', ''),
+                 'url': item.get('url', '')}
+                for item in rankings if item.get('thumbnail_url')
+            ]
+            if genre_meta:
+                save_works_metadata(self.platform_id, genre_meta)
+            self.logger.info(f"   💾 [{genre_name}]: {len(rankings)}개 저장")
 
     async def _fetch_genre_from_page(self, page, url: str) -> str:
         """개별 작품 페이지에서 BreadcrumbList의 position 2(장르)를 추출"""
