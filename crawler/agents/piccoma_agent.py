@@ -6,12 +6,15 @@
 - SMARTOON 종합 랭킹 크롤링
 - 일본 IP 필수
 - 셀렉터: .PCM-productTile ul > li (2026년 현재 구조)
+- 장르: 랭킹 페이지에 없음 → 개별 작품 페이지 JSON-LD에서 수집 후 캐시
 """
 
 from typing import List, Dict, Any
 from playwright.async_api import Browser
 
 from crawler.agents.base_agent import CrawlerAgent
+from crawler.db import get_works_genres, save_work_genre, update_rankings_genre
+from crawler.utils import translate_genre
 
 
 class PiccomaAgent(CrawlerAgent):
@@ -70,6 +73,10 @@ class PiccomaAgent(CrawlerAgent):
                     continue
 
             self.logger.info(f"   ✅ {self.platform_name}: {len(rankings)}개 작품 수집 완료")
+
+            # 장르 수집: 캐시에 없는 작품만 개별 페이지 방문
+            await self._fill_genres(browser, rankings)
+
             return rankings
 
         finally:
@@ -131,6 +138,71 @@ class PiccomaAgent(CrawlerAgent):
             'url': url,
             'thumbnail_url': thumbnail_url,
         }
+
+    async def _fill_genres(self, browser: Browser, rankings: List[Dict[str, Any]]):
+        """
+        장르가 없는 작품에 대해 개별 페이지에서 장르 수집 후 캐시
+
+        - works 테이블에 이미 장르가 있으면 캐시에서 가져옴
+        - 없으면 개별 작품 페이지의 JSON-LD에서 category 추출
+        """
+        # 1. 캐시된 장르 로드
+        genre_cache = get_works_genres('piccoma')
+        need_fetch = []
+
+        for item in rankings:
+            title = item['title']
+            if title in genre_cache:
+                item['genre'] = genre_cache[title]
+            elif item['url']:
+                need_fetch.append(item)
+
+        if not need_fetch:
+            self.logger.info(f"   📚 장르: 전부 캐시 적중 ({len(rankings)}개)")
+            return
+
+        self.logger.info(f"   📚 장르 수집: {len(need_fetch)}개 작품 페이지 방문 필요")
+
+        # 2. 개별 페이지 방문하여 장르 추출
+        page = await browser.new_page()
+        fetched = 0
+        try:
+            for item in need_fetch:
+                try:
+                    genre = await self._fetch_genre_from_page(page, item['url'])
+                    if genre:
+                        item['genre'] = genre
+                        save_work_genre('piccoma', item['title'], genre)
+                        genre_kr = translate_genre(genre)
+                        update_rankings_genre('piccoma', item['title'], genre, genre_kr)
+                        fetched += 1
+                except Exception as e:
+                    self.logger.debug(f"   장르 수집 실패 ({item['title']}): {e}")
+                    continue
+        finally:
+            await page.close()
+
+        self.logger.info(f"   📚 장르 수집 완료: {fetched}/{len(need_fetch)}개 성공")
+
+    async def _fetch_genre_from_page(self, page, url: str) -> str:
+        """개별 작품 페이지에서 JSON-LD의 category 필드로 장르 추출"""
+        await page.goto(url, wait_until='domcontentloaded', timeout=15000)
+
+        genre = await page.evaluate('''
+            () => {
+                const scripts = document.querySelectorAll('script[type="application/ld+json"]');
+                for (const s of scripts) {
+                    try {
+                        const data = JSON.parse(s.textContent);
+                        if (data["@type"] === "Product" && data.category) {
+                            return data.category;
+                        }
+                    } catch(e) {}
+                }
+                return "";
+            }
+        ''')
+        return genre or ''
 
 
 if __name__ == "__main__":

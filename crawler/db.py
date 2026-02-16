@@ -71,6 +71,12 @@ def init_db():
     except sqlite3.OperationalError:
         pass  # 이미 존재
 
+    # migration: 기존 works 테이블에 genre 컬럼이 없으면 추가
+    try:
+        cursor.execute('ALTER TABLE works ADD COLUMN genre TEXT')
+    except sqlite3.OperationalError:
+        pass  # 이미 존재
+
     conn.commit()
     conn.close()
 
@@ -250,6 +256,55 @@ def get_works_without_base64(platform: str) -> List[Dict[str, str]]:
     result = [{'title': row[0], 'thumbnail_url': row[1]} for row in cursor.fetchall()]
     conn.close()
     return result
+
+
+def get_works_genres(platform: str) -> Dict[str, str]:
+    """
+    플랫폼의 모든 작품 장르 캐시 맵 반환
+
+    Returns:
+        {title: genre} 딕셔너리
+    """
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute('''
+        SELECT title, genre
+        FROM works
+        WHERE platform = ? AND genre IS NOT NULL AND genre != ''
+    ''', (platform,))
+    result = {row[0]: row[1] for row in cursor.fetchall()}
+    conn.close()
+    return result
+
+
+def save_work_genre(platform: str, title: str, genre: str):
+    """작품 장르를 works 테이블에 캐시 저장"""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute('''
+        UPDATE works SET genre = ?, updated_at = CURRENT_TIMESTAMP
+        WHERE platform = ? AND title = ?
+    ''', (genre, platform, title))
+    if cursor.rowcount == 0:
+        # works에 아직 없으면 insert
+        cursor.execute('''
+            INSERT OR IGNORE INTO works (platform, title, genre, updated_at)
+            VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+        ''', (platform, title, genre))
+    conn.commit()
+    conn.close()
+
+
+def update_rankings_genre(platform: str, title: str, genre: str, genre_kr: str):
+    """rankings 테이블에서 장르가 비어있는 해당 작품 레코드를 모두 업데이트"""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute('''
+        UPDATE rankings SET genre = ?, genre_kr = ?
+        WHERE platform = ? AND title = ? AND (genre IS NULL OR genre = '')
+    ''', (genre, genre_kr, platform, title))
+    conn.commit()
+    conn.close()
 
 
 def backup_to_json(date: str, platform: str, rankings: List[Dict[str, Any]]):

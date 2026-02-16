@@ -160,6 +160,26 @@ def load_rankings(date: str, platform: str) -> pd.DataFrame:
         WHERE date = ? AND platform = ?
         ORDER BY rank
     ''', conn, params=(date, platform))
+
+    # 장르가 비어있는 작품은 works 캐시에서 보충
+    missing_genre = df['genre'].isna() | (df['genre'] == '')
+    if missing_genre.any():
+        try:
+            genre_cache = pd.read_sql_query('''
+                SELECT title, genre FROM works
+                WHERE platform = ? AND genre IS NOT NULL AND genre != ''
+            ''', conn, params=(platform,))
+            if not genre_cache.empty:
+                from crawler.utils import translate_genre
+                genre_map = dict(zip(genre_cache['title'], genre_cache['genre']))
+                for idx in df[missing_genre].index:
+                    title = df.at[idx, 'title']
+                    if title in genre_map:
+                        df.at[idx, 'genre'] = genre_map[title]
+                        df.at[idx, 'genre_kr'] = translate_genre(genre_map[title])
+        except Exception:
+            pass  # works 테이블에 genre 컬럼이 아직 없을 수 있음
+
     conn.close()
 
     rank_changes = calculate_rank_changes(date, platform)
