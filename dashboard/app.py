@@ -510,17 +510,16 @@ td {{
     .thumb-empty {{ width: 36px; height: 50px; }}
 }}
 
-/* 모달 — absolute 기반 (iframe 전체 높이 대응) */
+/* 모달 — 클릭 위치 기반 동적 배치 */
 .modal-overlay {{
     display: none;
     position: absolute;
-    top: 0; left: 0; right: 0; bottom: 0;
+    left: 0; right: 0;
     min-height: 100%;
     background: rgba(0,0,0,0.5);
     z-index: 1000;
     justify-content: center;
     align-items: flex-start;
-    padding-top: 60px;
 }}
 .modal-overlay.active {{
     display: flex;
@@ -531,11 +530,10 @@ td {{
     padding: 24px;
     width: 90%;
     max-width: 680px;
-    max-height: 80vh;
+    max-height: 600px;
     overflow-y: auto;
     box-shadow: 0 20px 60px rgba(0,0,0,0.3);
-    position: sticky;
-    top: 60px;
+    position: relative;
 }}
 .modal-close {{
     position: absolute;
@@ -740,13 +738,19 @@ function drawChart(canvas, ranks, labels) {{
     }});
 }}
 
-function showChart(title) {{
+function showChart(title, clickY) {{
     var modal = document.getElementById('chartModal');
     var titleEl = document.getElementById('modalTitle');
     var subtitleEl = document.getElementById('modalSubtitle');
     var statsRow = document.getElementById('statsRow');
     var noData = document.getElementById('noData');
     var chartContainer = document.querySelector('.chart-container');
+
+    // 모달 오버레이를 클릭 위치 근처에 배치
+    var modalTop = Math.max(0, (clickY || 0) - 100);
+    modal.style.top = modalTop + 'px';
+    modal.style.bottom = '0';
+    modal.style.paddingTop = '20px';
 
     var kr = TITLE_KR[title] || '';
     titleEl.textContent = '📈 ' + title;
@@ -798,7 +802,9 @@ document.querySelectorAll('.chart-btn').forEach(function(btn) {{
     btn.addEventListener('click', function(e) {{
         e.preventDefault();
         var title = this.getAttribute('data-title');
-        showChart(title);
+        // 클릭한 버튼의 Y 위치를 전달하여 모달을 해당 위치에 표시
+        var btnY = this.getBoundingClientRect().top + window.pageYOffset;
+        showChart(title, btnY);
     }});
 }});
 
