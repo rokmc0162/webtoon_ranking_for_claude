@@ -121,6 +121,15 @@ footer { display: none !important; }
         padding-right: 0.5rem !important;
     }
 }
+
+/* ===== 플랫폼 카드: 좁은 화면에서도 가로 유지 ===== */
+[data-testid="stHorizontalBlock"]:has(.pcard-logo) {
+    flex-wrap: nowrap !important;
+}
+[data-testid="stHorizontalBlock"]:has(.pcard-logo) > [data-testid="stColumn"] {
+    min-width: 0 !important;
+    flex: 1 1 0 !important;
+}
 </style>
 """, unsafe_allow_html=True)
 
