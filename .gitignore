@@ -33,6 +33,9 @@ playwright/
 # Streamlit
 .streamlit/secrets.toml
 
+# Environment
+.env
+
 # Tunnel (동적 생성 파일)
 data/tunnel_url.txt
 

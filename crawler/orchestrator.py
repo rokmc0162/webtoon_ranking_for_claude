@@ -114,7 +114,7 @@ class CrawlerOrchestrator:
                 total_items = sum(r.count for r in results_dict.values() if r.success)
                 self.logger.info("")
                 self.logger.info(f"📚 총 {total_items}개 작품 수집")
-                self.logger.info(f"💾 데이터 저장: data/rankings.db")
+                self.logger.info(f"💾 데이터 저장: Supabase PostgreSQL")
                 self.logger.info(f"📦 백업: data/backup/{self.date}/")
                 self.logger.info("=" * 70)
 

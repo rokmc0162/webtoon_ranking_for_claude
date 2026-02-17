@@ -7,7 +7,7 @@
 
 import streamlit as st
 import streamlit.components.v1 as components
-import sqlite3
+import psycopg2
 import pandas as pd
 from pathlib import Path
 from datetime import datetime
@@ -19,9 +19,15 @@ import html as html_module
 import json
 import subprocess
 import sys
+import os
+from dotenv import load_dotenv
 
 # 프로젝트 루트
 project_root = Path(__file__).parent.parent
+
+# 환경변수 로드
+load_dotenv(project_root / '.env')
+DATABASE_URL = os.environ.get('SUPABASE_DB_URL', '')
 
 # 페이지 설정
 st.set_page_config(
@@ -147,8 +153,7 @@ footer { display: none !important; }
 # =============================================================================
 
 def get_db_connection():
-    db_path = project_root / 'data' / 'rankings.db'
-    return sqlite3.connect(str(db_path))
+    return psycopg2.connect(DATABASE_URL)
 
 
 def get_available_dates():
@@ -165,7 +170,7 @@ def load_rankings(date: str, platform: str, sub_category: str = '') -> pd.DataFr
     df = pd.read_sql_query('''
         SELECT rank, title, title_kr, genre, genre_kr, url, is_riverse
         FROM rankings
-        WHERE date = ? AND platform = ? AND COALESCE(sub_category, '') = ?
+        WHERE date = %s AND platform = %s AND COALESCE(sub_category, '') = %s
         ORDER BY rank
     ''', conn, params=(date, platform, sub_category))
 
@@ -175,7 +180,7 @@ def load_rankings(date: str, platform: str, sub_category: str = '') -> pd.DataFr
         try:
             genre_cache = pd.read_sql_query('''
                 SELECT title, genre FROM works
-                WHERE platform = ? AND genre IS NOT NULL AND genre != ''
+                WHERE platform = %s AND genre IS NOT NULL AND genre != ''
             ''', conn, params=(platform,))
             if not genre_cache.empty:
                 from crawler.utils import translate_genre
@@ -200,7 +205,7 @@ def calculate_rank_changes(date: str, platform: str) -> dict:
     cursor = conn.cursor()
     cursor.execute('''
         SELECT DISTINCT date FROM rankings
-        WHERE date < ? AND platform = ?
+        WHERE date < %s AND platform = %s
         ORDER BY date DESC LIMIT 1
     ''', (date, platform))
     result = cursor.fetchone()
@@ -209,10 +214,10 @@ def calculate_rank_changes(date: str, platform: str) -> dict:
         return {}
     prev_date = result[0]
     current = pd.read_sql_query(
-        'SELECT title, rank FROM rankings WHERE date = ? AND platform = ?',
+        'SELECT title, rank FROM rankings WHERE date = %s AND platform = %s',
         conn, params=(date, platform))
     previous = pd.read_sql_query(
-        'SELECT title, rank FROM rankings WHERE date = ? AND platform = ?',
+        'SELECT title, rank FROM rankings WHERE date = %s AND platform = %s',
         conn, params=(prev_date, platform))
     conn.close()
     current_ranks = dict(zip(current['title'], current['rank']))
@@ -230,8 +235,8 @@ def get_rank_history(title: str, platform: str, days: int = 30) -> pd.DataFrame:
     conn = get_db_connection()
     df = pd.read_sql_query('''
         SELECT date, rank FROM rankings
-        WHERE title = ? AND platform = ?
-        ORDER BY date DESC LIMIT ?
+        WHERE title = %s AND platform = %s
+        ORDER BY date DESC LIMIT %s
     ''', conn, params=(title, platform, days))
     conn.close()
     return df.sort_values('date')
@@ -244,7 +249,7 @@ def get_riverse_counts_by_genre(date: str, platform: str) -> dict:
     cursor.execute('''
         SELECT COALESCE(sub_category, ''), COUNT(*)
         FROM rankings
-        WHERE date = ? AND platform = ? AND is_riverse = 1
+        WHERE date = %s AND platform = %s AND is_riverse = TRUE
         GROUP BY COALESCE(sub_category, '')
     ''', (date, platform))
     result = {row[0]: row[1] for row in cursor.fetchall()}
@@ -257,9 +262,9 @@ def get_platform_stats(date: str) -> dict:
     stats = {}
     for pid in PLATFORMS:
         cursor = conn.cursor()
-        cursor.execute('SELECT COUNT(*) FROM rankings WHERE date=? AND platform=?', (date, pid))
+        cursor.execute('SELECT COUNT(*) FROM rankings WHERE date=%s AND platform=%s', (date, pid))
         total = cursor.fetchone()[0]
-        cursor.execute('SELECT COUNT(*) FROM rankings WHERE date=? AND platform=? AND is_riverse=1', (date, pid))
+        cursor.execute('SELECT COUNT(*) FROM rankings WHERE date=%s AND platform=%s AND is_riverse=TRUE', (date, pid))
         riverse = cursor.fetchone()[0]
         stats[pid] = {'total': total, 'riverse': riverse}
     conn.close()
@@ -314,7 +319,7 @@ def ensure_thumbnails_cached(platform: str) -> dict:
     cursor.execute('''
         SELECT title, thumbnail_base64
         FROM works
-        WHERE platform = ? AND thumbnail_base64 IS NOT NULL AND thumbnail_base64 != ''
+        WHERE platform = %s AND thumbnail_base64 IS NOT NULL AND thumbnail_base64 != ''
     ''', (platform,))
     cached = {row[0]: row[1] for row in cursor.fetchall()}
 
@@ -322,7 +327,7 @@ def ensure_thumbnails_cached(platform: str) -> dict:
     cursor.execute('''
         SELECT title, thumbnail_url
         FROM works
-        WHERE platform = ?
+        WHERE platform = %s
           AND thumbnail_url IS NOT NULL AND thumbnail_url != ''
           AND (thumbnail_base64 IS NULL OR thumbnail_base64 = '')
     ''', (platform,))
@@ -336,8 +341,8 @@ def ensure_thumbnails_cached(platform: str) -> dict:
             conn2 = get_db_connection()
             cur2 = conn2.cursor()
             cur2.execute('''
-                UPDATE works SET thumbnail_base64 = ?, updated_at = CURRENT_TIMESTAMP
-                WHERE platform = ? AND title = ?
+                UPDATE works SET thumbnail_base64 = %s, updated_at = NOW()
+                WHERE platform = %s AND title = %s
             ''', (data_uri, platform, title))
             conn2.commit()
             conn2.close()
@@ -359,9 +364,9 @@ def get_rank_histories_batch(titles: list, platform: str, days: int = 30) -> dic
     for title in titles:
         df = pd.read_sql_query('''
             SELECT date, MIN(rank) as rank FROM rankings
-            WHERE title = ? AND platform = ?
+            WHERE title = %s AND platform = %s
             GROUP BY date
-            ORDER BY date DESC LIMIT ?
+            ORDER BY date DESC LIMIT %s
         ''', conn, params=(title, platform, days))
         if not df.empty:
             df = df.sort_values('date')
@@ -1081,7 +1086,7 @@ def main():
                                                                      not st.session_state.riverse_only))
 
     if show_riverse:
-        df = df[df['is_riverse'] == 1].reset_index(drop=True)
+        df = df[df['is_riverse'] == True].reset_index(drop=True)
         if df.empty:
             st.info("리버스 작품이 아직 랭킹에 없습니다.")
             return
@@ -1105,7 +1110,7 @@ def main():
 
     # 푸터
     st.divider()
-    st.caption("RIVERSE Inc. | 데이터: data/rankings.db | 매일 9:00 / 15:00 / 21:00 자동 수집")
+    st.caption("RIVERSE Inc. | 데이터: Supabase PostgreSQL | 매일 9:00 / 15:00 / 21:00 자동 수집")
 
 
 if __name__ == "__main__":

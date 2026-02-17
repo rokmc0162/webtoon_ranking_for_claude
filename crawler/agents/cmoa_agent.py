@@ -177,11 +177,11 @@ class CmoaAgent(CrawlerAgent):
         save_rankings(date, self.platform_id, data, sub_category='')
         works_meta = [
             {'title': item['title'], 'thumbnail_url': item.get('thumbnail_url', ''),
-             'url': item.get('url', '')}
+             'url': item.get('url', ''), 'genre': item.get('genre', ''), 'rank': item.get('rank')}
             for item in data if item.get('thumbnail_url')
         ]
         if works_meta:
-            save_works_metadata(self.platform_id, works_meta)
+            save_works_metadata(self.platform_id, works_meta, date=date, sub_category='')
         backup_to_json(date, self.platform_id, data)
 
         # 카테고리별 랭킹 저장
@@ -192,11 +192,11 @@ class CmoaAgent(CrawlerAgent):
             save_rankings(date, self.platform_id, rankings, sub_category=genre_key)
             genre_meta = [
                 {'title': item['title'], 'thumbnail_url': item.get('thumbnail_url', ''),
-                 'url': item.get('url', '')}
+                 'url': item.get('url', ''), 'genre': item.get('genre', ''), 'rank': item.get('rank')}
                 for item in rankings if item.get('thumbnail_url')
             ]
             if genre_meta:
-                save_works_metadata(self.platform_id, genre_meta)
+                save_works_metadata(self.platform_id, genre_meta, date=date, sub_category=genre_key)
             self.logger.info(f"   💾 [{genre_name}]: {len(rankings)}개 저장")
 
 

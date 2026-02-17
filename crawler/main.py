@@ -20,12 +20,13 @@ sys.path.insert(0, str(project_root))
 
 from crawler.orchestrator import CrawlerOrchestrator
 from crawler.db import init_db
+from crawler.verify import verify
 
 
 def main():
     """메인 함수"""
     try:
-        # DB 초기화 (테이블 없으면 생성)
+        # DB 연결 확인
         init_db()
 
         # Orchestrator를 통해 병렬 크롤링 실행
@@ -34,6 +35,19 @@ def main():
 
         # 성공 여부에 따라 종료 코드 반환
         success_count = sum(1 for r in results.values() if r.success)
+
+        # 크롤링 후 자동 검증
+        if success_count > 0:
+            print("\n")
+            verify()
+
+            # 상세 페이지 메타데이터 스크래핑 (50개, 순차)
+            try:
+                from crawler.detail_scraper import run_detail_scraper
+                print("\n📋 상세 페이지 메타데이터 수집 시작...")
+                asyncio.run(run_detail_scraper(max_works=50))
+            except Exception as e:
+                print(f"⚠️  상세 스크래핑 중 오류 (무시): {e}")
 
         if success_count == 0:
             print("⚠️  모든 플랫폼 크롤링 실패")

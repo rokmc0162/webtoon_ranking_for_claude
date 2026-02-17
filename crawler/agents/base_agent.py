@@ -179,18 +179,20 @@ class CrawlerAgent(ABC):
         save_rankings(date, self.platform_id, data)
         self.logger.debug(f"Saved {len(data)} items to database")
 
-        # Save works metadata (thumbnails)
+        # Save works metadata (thumbnails + 작품 정보)
         works_meta = [
             {
                 'title': item['title'],
                 'thumbnail_url': item.get('thumbnail_url', ''),
                 'url': item.get('url', ''),
+                'genre': item.get('genre', ''),
+                'rank': item.get('rank'),
             }
             for item in data
             if item.get('thumbnail_url')
         ]
         if works_meta:
-            save_works_metadata(self.platform_id, works_meta)
+            save_works_metadata(self.platform_id, works_meta, date=date)
 
         # Backup to JSON
         backup_to_json(date, self.platform_id, data)

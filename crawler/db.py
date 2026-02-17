@@ -1,13 +1,15 @@
 """
-SQLite 데이터베이스 스키마 및 저장 로직
+Supabase PostgreSQL 데이터베이스 스키마 및 저장 로직
 """
 
-import sqlite3
+import psycopg2
 import json
+import os
 from pathlib import Path
 from datetime import datetime
 from typing import List, Dict, Any, Optional
 import sys
+from dotenv import load_dotenv
 
 # 프로젝트 루트를 sys.path에 추가
 project_root = Path(__file__).parent.parent
@@ -15,110 +17,28 @@ sys.path.insert(0, str(project_root))
 
 from crawler.utils import get_korean_title, is_riverse_title, translate_genre
 
+# 환경변수 로드
+load_dotenv(project_root / '.env')
+DATABASE_URL = os.environ.get('SUPABASE_DB_URL', '')
 
-# DB 경로
-DB_PATH = project_root / 'data' / 'rankings.db'
+
+def get_db_connection():
+    """Supabase PostgreSQL 연결"""
+    conn = psycopg2.connect(DATABASE_URL)
+    return conn
 
 
 def init_db():
-    """데이터베이스 초기화 - 최초 1회 실행"""
-    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-
-    # rankings 테이블 생성
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS rankings (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            date TEXT NOT NULL,
-            platform TEXT NOT NULL,
-            rank INTEGER NOT NULL,
-            title TEXT NOT NULL,
-            title_kr TEXT,
-            genre TEXT,
-            genre_kr TEXT,
-            url TEXT NOT NULL,
-            is_riverse BOOLEAN DEFAULT 0,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            UNIQUE(date, platform, rank)
-        )
-    ''')
-
-    # 인덱스 생성
-    cursor.execute('CREATE INDEX IF NOT EXISTS idx_date_platform ON rankings(date, platform)')
-    cursor.execute('CREATE INDEX IF NOT EXISTS idx_riverse ON rankings(is_riverse) WHERE is_riverse = 1')
-    cursor.execute('CREATE INDEX IF NOT EXISTS idx_title ON rankings(title)')
-
-    # works 메타데이터 테이블 (썸네일 등 캐싱용)
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS works (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            platform TEXT NOT NULL,
-            title TEXT NOT NULL,
-            thumbnail_url TEXT,
-            thumbnail_base64 TEXT,
-            url TEXT,
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            UNIQUE(platform, title)
-        )
-    ''')
-    cursor.execute('CREATE INDEX IF NOT EXISTS idx_works_platform ON works(platform)')
-
-    # migration: 기존 works 테이블에 thumbnail_base64 컬럼이 없으면 추가
+    """데이터베이스 연결 확인"""
     try:
-        cursor.execute('ALTER TABLE works ADD COLUMN thumbnail_base64 TEXT')
-    except sqlite3.OperationalError:
-        pass  # 이미 존재
-
-    # migration: 기존 works 테이블에 genre 컬럼이 없으면 추가
-    try:
-        cursor.execute('ALTER TABLE works ADD COLUMN genre TEXT')
-    except sqlite3.OperationalError:
-        pass  # 이미 존재
-
-    # migration: rankings 테이블에 sub_category 컬럼 추가 + UNIQUE 제약조건 변경
-    try:
-        cursor.execute('ALTER TABLE rankings ADD COLUMN sub_category TEXT DEFAULT ""')
-        # 기존 UNIQUE(date, platform, rank) 제약조건은 테이블 재생성으로 변경
-        cursor.execute('ALTER TABLE rankings RENAME TO rankings_old')
-        cursor.execute('''
-            CREATE TABLE rankings (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                date TEXT NOT NULL,
-                platform TEXT NOT NULL,
-                sub_category TEXT DEFAULT "",
-                rank INTEGER NOT NULL,
-                title TEXT NOT NULL,
-                title_kr TEXT,
-                genre TEXT,
-                genre_kr TEXT,
-                url TEXT NOT NULL,
-                is_riverse BOOLEAN DEFAULT 0,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                UNIQUE(date, platform, sub_category, rank)
-            )
-        ''')
-        cursor.execute('''
-            INSERT INTO rankings (id, date, platform, sub_category, rank, title, title_kr,
-                                  genre, genre_kr, url, is_riverse, created_at)
-            SELECT id, date, platform, "", rank, title, title_kr,
-                   genre, genre_kr, url, is_riverse, created_at
-            FROM rankings_old
-        ''')
-        cursor.execute('DROP TABLE rankings_old')
-        cursor.execute('CREATE INDEX IF NOT EXISTS idx_date_platform ON rankings(date, platform)')
-        cursor.execute('CREATE INDEX IF NOT EXISTS idx_riverse ON rankings(is_riverse) WHERE is_riverse = 1')
-        cursor.execute('CREATE INDEX IF NOT EXISTS idx_title ON rankings(title)')
-        cursor.execute('CREATE INDEX IF NOT EXISTS idx_date_platform_subcat ON rankings(date, platform, sub_category)')
-        print("✅ rankings 테이블 마이그레이션 완료 (sub_category 추가)")
-    except sqlite3.OperationalError:
-        pass  # 이미 sub_category 존재
-
-    conn.commit()
-    conn.close()
-
-    print(f"✅ DB 초기화 완료: {DB_PATH}")
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute('SELECT 1')
+        conn.close()
+        print(f"✅ DB 연결 확인 완료: Supabase PostgreSQL")
+    except Exception as e:
+        print(f"❌ DB 연결 실패: {e}")
+        raise
 
 
 def save_rankings(date: str, platform: str, rankings: List[Dict[str, Any]],
@@ -136,7 +56,7 @@ def save_rankings(date: str, platform: str, rankings: List[Dict[str, Any]],
         print(f"⚠️  {platform}: 저장할 데이터 없음")
         return
 
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_db_connection()
     cursor = conn.cursor()
 
     saved_count = 0
@@ -148,13 +68,21 @@ def save_rankings(date: str, platform: str, rankings: List[Dict[str, Any]],
         genre_kr = translate_genre(item.get('genre', ''))
 
         # 리버스 작품 여부
-        is_riverse = 1 if is_riverse_title(item['title']) else 0
+        is_riverse = is_riverse_title(item['title'])
 
         try:
             cursor.execute('''
-                INSERT OR REPLACE INTO rankings
+                INSERT INTO rankings
                 (date, platform, sub_category, rank, title, title_kr, genre, genre_kr, url, is_riverse)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT (date, platform, sub_category, rank)
+                DO UPDATE SET
+                    title = EXCLUDED.title,
+                    title_kr = EXCLUDED.title_kr,
+                    genre = EXCLUDED.genre,
+                    genre_kr = EXCLUDED.genre_kr,
+                    url = EXCLUDED.url,
+                    is_riverse = EXCLUDED.is_riverse
             ''', (
                 date,
                 platform,
@@ -177,18 +105,21 @@ def save_rankings(date: str, platform: str, rankings: List[Dict[str, Any]],
     print(f"💾 {platform}: {saved_count}개 작품 DB 저장")
 
 
-def save_works_metadata(platform: str, works: List[Dict[str, Any]]):
+def save_works_metadata(platform: str, works: List[Dict[str, Any]],
+                        date: str = '', sub_category: str = ''):
     """
-    작품 메타데이터 저장/갱신 (thumbnail_url 등 캐싱)
+    작품 메타데이터 저장/갱신 (독립 작품 DB)
 
     Args:
         platform: 플랫폼 이름
-        works: [{'title': str, 'thumbnail_url': str, 'url': str}, ...]
+        works: [{'title': str, 'thumbnail_url': str, 'url': str, 'genre': str, 'rank': int}, ...]
+        date: 크롤링 날짜 (YYYY-MM-DD) — first/last_seen_date 갱신용
+        sub_category: 서브 카테고리 ('' = 종합 → best_rank 갱신)
     """
     if not works:
         return
 
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_db_connection()
     cursor = conn.cursor()
 
     count = 0
@@ -196,19 +127,49 @@ def save_works_metadata(platform: str, works: List[Dict[str, Any]]):
         title = item.get('title', '')
         thumbnail_url = item.get('thumbnail_url', '')
         url = item.get('url', '')
+        genre = item.get('genre', '')
+        rank = item.get('rank', None)
 
-        if not title or not thumbnail_url:
+        if not title:
             continue
 
+        # 한국어 제목, 리버스 여부 계산
+        title_kr = get_korean_title(title)
+        genre_kr = translate_genre(genre) if genre else ''
+        is_riverse = is_riverse_title(title)
+
+        # UPSERT: 신규 작품이면 INSERT, 기존이면 갱신
         cursor.execute('''
-            INSERT INTO works (platform, title, thumbnail_url, url, updated_at)
-            VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+            INSERT INTO works (platform, title, thumbnail_url, url, genre, genre_kr,
+                               title_kr, is_riverse, first_seen_date, last_seen_date,
+                               best_rank, updated_at)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s,
+                    CASE WHEN %s != '' THEN %s::date ELSE NULL END,
+                    CASE WHEN %s != '' THEN %s::date ELSE NULL END,
+                    CASE WHEN %s = '' AND %s IS NOT NULL THEN %s ELSE NULL END,
+                    NOW())
             ON CONFLICT(platform, title)
             DO UPDATE SET
-                thumbnail_url = excluded.thumbnail_url,
-                url = excluded.url,
-                updated_at = CURRENT_TIMESTAMP
-        ''', (platform, title, thumbnail_url, url))
+                thumbnail_url = CASE WHEN EXCLUDED.thumbnail_url != '' THEN EXCLUDED.thumbnail_url
+                                     ELSE works.thumbnail_url END,
+                url = CASE WHEN EXCLUDED.url != '' THEN EXCLUDED.url ELSE works.url END,
+                genre = CASE WHEN EXCLUDED.genre != '' THEN EXCLUDED.genre ELSE works.genre END,
+                genre_kr = CASE WHEN EXCLUDED.genre_kr != '' THEN EXCLUDED.genre_kr ELSE works.genre_kr END,
+                title_kr = CASE WHEN EXCLUDED.title_kr != '' THEN EXCLUDED.title_kr ELSE works.title_kr END,
+                is_riverse = EXCLUDED.is_riverse OR works.is_riverse,
+                first_seen_date = LEAST(works.first_seen_date, EXCLUDED.first_seen_date),
+                last_seen_date = GREATEST(works.last_seen_date, EXCLUDED.last_seen_date),
+                best_rank = CASE
+                    WHEN EXCLUDED.best_rank IS NOT NULL AND (works.best_rank IS NULL OR EXCLUDED.best_rank < works.best_rank)
+                    THEN EXCLUDED.best_rank ELSE works.best_rank END,
+                updated_at = NOW()
+        ''', (
+            platform, title, thumbnail_url, url, genre, genre_kr,
+            title_kr, is_riverse,
+            date, date,   # first_seen_date
+            date, date,   # last_seen_date
+            sub_category, rank, rank  # best_rank (only for 종합)
+        ))
         count += 1
 
     conn.commit()
@@ -225,13 +186,13 @@ def get_works_thumbnails(platform: str) -> Dict[str, str]:
     Returns:
         {title: thumbnail_url} 딕셔너리
     """
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_db_connection()
     cursor = conn.cursor()
 
     cursor.execute('''
         SELECT title, thumbnail_url
         FROM works
-        WHERE platform = ? AND thumbnail_url IS NOT NULL AND thumbnail_url != ''
+        WHERE platform = %s AND thumbnail_url IS NOT NULL AND thumbnail_url != ''
     ''', (platform,))
 
     result = {row[0]: row[1] for row in cursor.fetchall()}
@@ -248,11 +209,11 @@ def save_thumbnail_base64(platform: str, title: str, b64_data: str):
         title: 작품명
         b64_data: "data:image/jpeg;base64,..." 형식의 data URI
     """
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute('''
-        UPDATE works SET thumbnail_base64 = ?, updated_at = CURRENT_TIMESTAMP
-        WHERE platform = ? AND title = ?
+        UPDATE works SET thumbnail_base64 = %s, updated_at = NOW()
+        WHERE platform = %s AND title = %s
     ''', (b64_data, platform, title))
     conn.commit()
     conn.close()
@@ -265,12 +226,12 @@ def get_thumbnails_base64(platform: str) -> Dict[str, str]:
     Returns:
         {title: "data:image/...;base64,..."} 딕셔너리
     """
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute('''
         SELECT title, thumbnail_base64
         FROM works
-        WHERE platform = ? AND thumbnail_base64 IS NOT NULL AND thumbnail_base64 != ''
+        WHERE platform = %s AND thumbnail_base64 IS NOT NULL AND thumbnail_base64 != ''
     ''', (platform,))
     result = {row[0]: row[1] for row in cursor.fetchall()}
     conn.close()
@@ -284,16 +245,173 @@ def get_works_without_base64(platform: str) -> List[Dict[str, str]]:
     Returns:
         [{'title': str, 'thumbnail_url': str}, ...]
     """
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute('''
         SELECT title, thumbnail_url
         FROM works
-        WHERE platform = ?
+        WHERE platform = %s
           AND thumbnail_url IS NOT NULL AND thumbnail_url != ''
           AND (thumbnail_base64 IS NULL OR thumbnail_base64 = '')
     ''', (platform,))
     result = [{'title': row[0], 'thumbnail_url': row[1]} for row in cursor.fetchall()]
+    conn.close()
+    return result
+
+
+def save_work_detail(platform: str, title: str, detail: Dict[str, Any]):
+    """
+    작품 상세 메타데이터 저장 (상세 페이지에서 수집)
+    COALESCE(NULLIF(...), existing) 패턴으로 기존 데이터 보호
+
+    Args:
+        platform: 플랫폼 이름
+        title: 작품 제목 (일본어)
+        detail: {author, publisher, label, tags, description, hearts, favorites, rating, review_count}
+    """
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute('''
+        UPDATE works SET
+            author = COALESCE(NULLIF(%s, ''), author),
+            publisher = COALESCE(NULLIF(%s, ''), publisher),
+            label = COALESCE(NULLIF(%s, ''), label),
+            tags = COALESCE(NULLIF(%s, ''), tags),
+            description = COALESCE(NULLIF(%s, ''), description),
+            hearts = COALESCE(%s, hearts),
+            favorites = COALESCE(%s, favorites),
+            rating = COALESCE(%s, rating),
+            review_count = COALESCE(%s, review_count),
+            detail_scraped_at = NOW(),
+            updated_at = NOW()
+        WHERE platform = %s AND title = %s
+    ''', (
+        detail.get('author', ''),
+        detail.get('publisher', ''),
+        detail.get('label', ''),
+        detail.get('tags', ''),
+        detail.get('description', ''),
+        detail.get('hearts'),
+        detail.get('favorites'),
+        detail.get('rating'),
+        detail.get('review_count'),
+        platform, title
+    ))
+    updated = cursor.rowcount
+    conn.commit()
+    conn.close()
+    return updated > 0
+
+
+def save_reviews(platform: str, work_title: str, reviews: List[Dict[str, Any]]) -> int:
+    """
+    리뷰/코멘트 벌크 저장 (ON CONFLICT DO NOTHING으로 중복 방지)
+
+    Args:
+        platform: 플랫폼 이름
+        work_title: 작품 제목 (일본어)
+        reviews: [{reviewer_name, reviewer_info, body, rating, likes_count, is_spoiler, reviewed_at}]
+
+    Returns:
+        저장된 리뷰 수
+    """
+    if not reviews:
+        return 0
+
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    count = 0
+    for r in reviews:
+        try:
+            cursor.execute('''
+                INSERT INTO reviews
+                (platform, work_title, reviewer_name, reviewer_info, body,
+                 rating, likes_count, is_spoiler, reviewed_at, collected_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
+                ON CONFLICT (platform, work_title, reviewer_name, reviewed_at)
+                DO NOTHING
+            ''', (
+                platform, work_title,
+                r.get('reviewer_name', ''),
+                r.get('reviewer_info', ''),
+                r.get('body', ''),
+                r.get('rating'),
+                r.get('likes_count', 0),
+                r.get('is_spoiler', False),
+                r.get('reviewed_at')
+            ))
+            if cursor.rowcount > 0:
+                count += 1
+        except Exception as e:
+            print(f"⚠️  리뷰 저장 실패: {e}")
+    conn.commit()
+    conn.close()
+    return count
+
+
+def get_works_needing_detail(max_count: int = 50) -> List[Dict[str, str]]:
+    """
+    상세 메타데이터가 필요한 작품 목록 조회
+    - detail_scraped_at이 NULL이거나 7일 이상 지난 작품
+    - 최근 랭킹 등장 순으로 우선
+
+    Returns:
+        [{platform, title, url}, ...]
+    """
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute('''
+        SELECT platform, title, url
+        FROM works
+        WHERE url IS NOT NULL AND url != ''
+          AND (detail_scraped_at IS NULL
+               OR detail_scraped_at < NOW() - INTERVAL '7 days')
+        ORDER BY last_seen_date DESC NULLS LAST,
+                 detail_scraped_at ASC NULLS FIRST
+        LIMIT %s
+    ''', (max_count,))
+    result = [{'platform': r[0], 'title': r[1], 'url': r[2]} for r in cursor.fetchall()]
+    conn.close()
+    return result
+
+
+def get_works_for_review(max_count: int = 100) -> List[Dict[str, str]]:
+    """
+    리뷰 수집 대상 작품 목록 (최근 7일 랭킹 등장, 픽코마 제외)
+    플랫폼별 균등 분배: max_count를 플랫폼 수로 나눠서 각 플랫폼에서 고르게 가져옴
+
+    Returns:
+        [{platform, title, url}, ...]
+    """
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    if max_count <= 0 or max_count >= 10000:
+        # 무제한: 전체 가져오기
+        cursor.execute('''
+            SELECT DISTINCT w.platform, w.title, w.url
+            FROM works w
+            WHERE w.platform != 'piccoma'
+              AND w.url IS NOT NULL AND w.url != ''
+              AND w.last_seen_date >= (CURRENT_DATE - INTERVAL '7 days')::date
+            ORDER BY w.platform, w.title
+        ''')
+    else:
+        # 플랫폼별 균등 분배 (WINDOW 함수 사용)
+        cursor.execute('''
+            SELECT platform, title, url FROM (
+                SELECT w.platform, w.title, w.url,
+                       ROW_NUMBER() OVER (PARTITION BY w.platform ORDER BY w.title) as rn
+                FROM works w
+                WHERE w.platform != 'piccoma'
+                  AND w.url IS NOT NULL AND w.url != ''
+                  AND w.last_seen_date >= (CURRENT_DATE - INTERVAL '7 days')::date
+            ) sub
+            WHERE rn <= %s
+            ORDER BY platform, title
+        ''', (max_count,))
+
+    result = [{'platform': r[0], 'title': r[1], 'url': r[2]} for r in cursor.fetchall()]
     conn.close()
     return result
 
@@ -305,12 +423,12 @@ def get_works_genres(platform: str) -> Dict[str, str]:
     Returns:
         {title: genre} 딕셔너리
     """
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute('''
         SELECT title, genre
         FROM works
-        WHERE platform = ? AND genre IS NOT NULL AND genre != ''
+        WHERE platform = %s AND genre IS NOT NULL AND genre != ''
     ''', (platform,))
     result = {row[0]: row[1] for row in cursor.fetchall()}
     conn.close()
@@ -319,17 +437,18 @@ def get_works_genres(platform: str) -> Dict[str, str]:
 
 def save_work_genre(platform: str, title: str, genre: str):
     """작품 장르를 works 테이블에 캐시 저장"""
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute('''
-        UPDATE works SET genre = ?, updated_at = CURRENT_TIMESTAMP
-        WHERE platform = ? AND title = ?
+        UPDATE works SET genre = %s, updated_at = NOW()
+        WHERE platform = %s AND title = %s
     ''', (genre, platform, title))
     if cursor.rowcount == 0:
         # works에 아직 없으면 insert
         cursor.execute('''
-            INSERT OR IGNORE INTO works (platform, title, genre, updated_at)
-            VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+            INSERT INTO works (platform, title, genre, updated_at)
+            VALUES (%s, %s, %s, NOW())
+            ON CONFLICT (platform, title) DO NOTHING
         ''', (platform, title, genre))
     conn.commit()
     conn.close()
@@ -337,11 +456,11 @@ def save_work_genre(platform: str, title: str, genre: str):
 
 def update_rankings_genre(platform: str, title: str, genre: str, genre_kr: str):
     """rankings 테이블에서 장르가 비어있는 해당 작품 레코드를 모두 업데이트"""
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute('''
-        UPDATE rankings SET genre = ?, genre_kr = ?
-        WHERE platform = ? AND title = ? AND (genre IS NULL OR genre = '')
+        UPDATE rankings SET genre = %s, genre_kr = %s
+        WHERE platform = %s AND title = %s AND (genre IS NULL OR genre = '')
     ''', (genre, genre_kr, platform, title))
     conn.commit()
     conn.close()
@@ -349,7 +468,7 @@ def update_rankings_genre(platform: str, title: str, genre: str, genre_kr: str):
 
 def backup_to_json(date: str, platform: str, rankings: List[Dict[str, Any]]):
     """
-    JSON 백업 저장 (SQLite 장애 대비)
+    JSON 백업 저장 (DB 장애 대비)
 
     Args:
         date: 날짜 (YYYY-MM-DD)
@@ -369,7 +488,7 @@ def backup_to_json(date: str, platform: str, rankings: List[Dict[str, Any]]):
 
 def get_available_dates() -> List[str]:
     """사용 가능한 날짜 목록 반환 (최신순)"""
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_db_connection()
     cursor = conn.cursor()
 
     cursor.execute('''
@@ -396,15 +515,15 @@ def get_rank_history(title: str, platform: str, days: int = 30) -> List[Dict[str
     Returns:
         [{'date': '2026-02-15', 'rank': 1}, ...]
     """
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_db_connection()
     cursor = conn.cursor()
 
     cursor.execute('''
         SELECT date, rank
         FROM rankings
-        WHERE title = ? AND platform = ?
+        WHERE title = %s AND platform = %s
         ORDER BY date DESC
-        LIMIT ?
+        LIMIT %s
     ''', (title, platform, days))
 
     history = [
@@ -431,13 +550,13 @@ def get_previous_date(date: str, platform: str) -> Optional[str]:
     Returns:
         이전 날짜 (YYYY-MM-DD) 또는 None
     """
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_db_connection()
     cursor = conn.cursor()
 
     cursor.execute('''
         SELECT DISTINCT date
         FROM rankings
-        WHERE date < ? AND platform = ?
+        WHERE date < %s AND platform = %s
         ORDER BY date DESC
         LIMIT 1
     ''', (date, platform))
@@ -467,14 +586,14 @@ def calculate_rank_changes(date: str, platform: str) -> Dict[str, int]:
     if not prev_date:
         return {}  # 이전 데이터 없음
 
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_db_connection()
     cursor = conn.cursor()
 
     # 현재 날짜 랭킹
     cursor.execute('''
         SELECT title, rank
         FROM rankings
-        WHERE date = ? AND platform = ?
+        WHERE date = %s AND platform = %s
     ''', (date, platform))
     current = {row[0]: row[1] for row in cursor.fetchall()}
 
@@ -482,7 +601,7 @@ def calculate_rank_changes(date: str, platform: str) -> Dict[str, int]:
     cursor.execute('''
         SELECT title, rank
         FROM rankings
-        WHERE date = ? AND platform = ?
+        WHERE date = %s AND platform = %s
     ''', (prev_date, platform))
     previous = {row[0]: row[1] for row in cursor.fetchall()}
 
@@ -501,28 +620,6 @@ def calculate_rank_changes(date: str, platform: str) -> Dict[str, int]:
 
 
 if __name__ == "__main__":
-    # 테스트 실행
+    # 연결 테스트
     init_db()
-    print("\n✅ DB 초기화 테스트 완료")
-
-    # 샘플 데이터 삽입
-    test_data = [
-        {
-            'rank': 1,
-            'title': 'テスト作品1',
-            'genre': 'ファンタジー',
-            'url': 'https://test.com/1'
-        },
-        {
-            'rank': 2,
-            'title': '俺だけレベルアップな件',
-            'genre': 'アクション',
-            'url': 'https://test.com/2'
-        }
-    ]
-
-    today = datetime.now().strftime('%Y-%m-%d')
-    save_rankings(today, 'test', test_data)
-    backup_to_json(today, 'test', test_data)
-
-    print("\n✅ 샘플 데이터 저장 테스트 완료")
+    print("\n✅ DB 연결 테스트 완료")

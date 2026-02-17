@@ -5,12 +5,15 @@ PATH=/usr/local/bin:/usr/bin:/bin
 LANG=ko_KR.UTF-8
 PYTHONUNBUFFERED=1
 
-# 매일 9시/15시/21시 크롤링
-0 9 * * * cd /app && python3 crawler/main.py >> /app/logs/crawler_$(date +\%Y-\%m-\%d).log 2>&1
-0 15 * * * cd /app && python3 crawler/main.py >> /app/logs/crawler_$(date +\%Y-\%m-\%d).log 2>&1
-0 21 * * * cd /app && python3 crawler/main.py >> /app/logs/crawler_$(date +\%Y-\%m-\%d).log 2>&1
+# 매일 9시/15시/21시 크롤링 (환경변수 소싱 후 실행)
+0 9 * * * . /etc/environment; cd /app && python3 crawler/main.py >> /app/logs/crawler_$(date +\%Y-\%m-\%d).log 2>&1
+0 15 * * * . /etc/environment; cd /app && python3 crawler/main.py >> /app/logs/crawler_$(date +\%Y-\%m-\%d).log 2>&1
+0 21 * * * . /etc/environment; cd /app && python3 crawler/main.py >> /app/logs/crawler_$(date +\%Y-\%m-\%d).log 2>&1
+
+# 주간 리뷰/코멘트 수집 (매주 월요일 01:00 JST)
+0 1 * * 1 . /etc/environment; cd /app && python3 crawler/main_reviews.py >> /app/logs/reviews_$(date +\%Y-\%m-\%d).log 2>&1
 
 # 매일 새벽 3시 — 30일 이상 된 로그 정리
-0 3 * * * find /app/logs -name "crawler_*.log" -mtime +30 -delete 2>/dev/null
+0 3 * * * find /app/logs -name "*.log" -mtime +30 -delete 2>/dev/null
 
 # cron 요구: 파일 끝에 빈 줄 필수

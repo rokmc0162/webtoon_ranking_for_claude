@@ -3,12 +3,13 @@ set -e
 
 echo "[$(date '+%Y-%m-%d %H:%M:%S')] 컨테이너 시작..."
 
-# 1. DB 초기화 (테이블 없으면 생성)
+# 1. DB 연결 확인 (Supabase PostgreSQL)
 cd /app
 python3 -c "from crawler.db import init_db; init_db()"
-echo "[$(date '+%Y-%m-%d %H:%M:%S')] DB 초기화 완료"
+echo "[$(date '+%Y-%m-%d %H:%M:%S')] DB 연결 확인 완료"
 
-# 2. cron 데몬 시작 (크롤러 스케줄링)
+# 2. cron 환경변수 전달 + 데몬 시작
+printenv | grep -E '^(SUPABASE_|LANG|PATH|TZ|PYTHON)' > /etc/environment
 cron
 echo "[$(date '+%Y-%m-%d %H:%M:%S')] cron 시작됨 (9/15/21시 크롤링)"
 

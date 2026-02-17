@@ -195,15 +195,15 @@ class PiccomaAgent(CrawlerAgent):
         """종합 + 장르별 랭킹 모두 저장"""
         from crawler.db import save_rankings, backup_to_json, save_works_metadata
 
-        # 종합 랭킹 저장 (기존 방식)
+        # 종합 랭킹 저장
         save_rankings(date, self.platform_id, data, sub_category='')
         works_meta = [
             {'title': item['title'], 'thumbnail_url': item.get('thumbnail_url', ''),
-             'url': item.get('url', '')}
+             'url': item.get('url', ''), 'genre': item.get('genre', ''), 'rank': item.get('rank')}
             for item in data if item.get('thumbnail_url')
         ]
         if works_meta:
-            save_works_metadata(self.platform_id, works_meta)
+            save_works_metadata(self.platform_id, works_meta, date=date, sub_category='')
         backup_to_json(date, self.platform_id, data)
 
         # 장르별 랭킹 저장
@@ -212,14 +212,13 @@ class PiccomaAgent(CrawlerAgent):
                 continue
             genre_name = PiccomaAgent.GENRE_RANKINGS[genre_key]['name']
             save_rankings(date, self.platform_id, rankings, sub_category=genre_key)
-            # 장르별 작품의 메타데이터도 저장
             genre_meta = [
                 {'title': item['title'], 'thumbnail_url': item.get('thumbnail_url', ''),
-                 'url': item.get('url', '')}
+                 'url': item.get('url', ''), 'genre': item.get('genre', ''), 'rank': item.get('rank')}
                 for item in rankings if item.get('thumbnail_url')
             ]
             if genre_meta:
-                save_works_metadata(self.platform_id, genre_meta)
+                save_works_metadata(self.platform_id, genre_meta, date=date, sub_category=genre_key)
             self.logger.info(f"   💾 [{genre_name}]: {len(rankings)}개 저장")
 
     async def _fetch_genre_from_page(self, page, url: str) -> str:
