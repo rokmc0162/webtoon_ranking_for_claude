@@ -27,7 +27,13 @@ export interface Genre {
 
 export interface RankHistory {
   date: string;
-  rank: number;
+  rank: number | null;
+  genre_rank: number | null;
+}
+
+export interface RankHistoryResponse {
+  overall: RankHistory[];
+  genre: string; // 장르명 (없으면 '')
 }
 
 export interface PlatformStats {
