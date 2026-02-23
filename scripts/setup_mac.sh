@@ -88,6 +88,7 @@ CRON_SCRIPT="$PROJECT_DIR/scripts/run_crawl_mac.sh"
 cat > "$CRON_SCRIPT" << CRONEOF
 #!/bin/bash
 cd "$PROJECT_DIR"
+git pull origin main --quiet 2>/dev/null
 source venv/bin/activate
 export \$(cat .env | xargs)
 python3 crawler/main.py >> "$PROJECT_DIR/logs/crawler_\$(date +%Y-%m-%d).log" 2>&1
