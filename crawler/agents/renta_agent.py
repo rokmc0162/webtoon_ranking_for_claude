@@ -4,8 +4,8 @@
 특징:
 - SSR 방식 (HTML 직접 렌더링)
 - IP 제한 없음
-- 카테고리별 랭킹 표시 (소녀, 소년, 청년, BL, TL 등)
-- 각 카테고리 섹션에서 아이템 추출
+- img.c-contents_cover 셀렉터로 썸네일 추출
+- lazyload → data-src에 실제 URL
 """
 
 import re
@@ -49,50 +49,12 @@ class RentaAgent(CrawlerAgent):
             await page.goto(self.url, wait_until='domcontentloaded', timeout=30000)
             await page.wait_for_timeout(5000)
 
-            # 텍스트 기반으로 모든 카테고리의 랭킹 추출
-            body_text = await page.inner_text('body')
-            lines = [l.strip() for l in body_text.split('\n') if l.strip()]
+            # DOM 기반 추출 (썸네일 포함)
+            rankings = await self._extract_via_dom(page)
 
-            # 카테고리별로 아이템 추출
-            # Renta는 카테고리 헤더 + 아이템 목록 구조
-            # 아이템은 "試し読み" 패턴을 기준으로 구분
-            rankings = []
-            rank = 0
-
-            for i, line in enumerate(lines):
-                # 타이틀 후보: 충분히 긴 텍스트 (네비게이션 제외)
-                if (len(line) >= 4 and
-                    line not in ['試し読み', '無料登録', 'ランキング', 'もっと見る'] and
-                    not line.startswith('レンタル') and
-                    not line.startswith('マンガ') and
-                    '配信中' not in line):
-
-                    # 이전 줄이 "試し読み"이면 다음 작품의 시작
-                    # 또는 이전 줄이 카테고리 헤더이면
-                    if i > 0:
-                        prev = lines[i - 1] if i > 0 else ''
-                        # 카테고리 헤더 패턴 감지
-                        categories = ['少女漫画', '少年漫画', '青年漫画', '映像化作品',
-                                      'ボーイズラブ', 'ティーンズラブ', '女性漫画',
-                                      'レディース', 'ハーレクイン', 'タテコミ']
-
-                        is_after_category = prev in categories
-                        is_after_trial = prev == '試し読み'
-
-                        if is_after_category or (is_after_trial and rank > 0):
-                            rank += 1
-                            if rank <= 100:
-                                rankings.append({
-                                    'rank': rank,
-                                    'title': line,
-                                    'genre': '',
-                                    'url': 'https://renta.papy.co.jp',
-                                    'thumbnail_url': '',
-                                })
-
-            # Fallback: evaluate JS로 링크 기반 추출
+            # 폴백: JS evaluate
             if len(rankings) < 10:
-                self.logger.info("   텍스트 파싱 부족, JS evaluate 시도...")
+                self.logger.info("   DOM 파싱 부족, JS evaluate 시도...")
                 rankings = await self._extract_via_js(page)
 
             all_rankings = rankings[:100]
@@ -105,11 +67,66 @@ class RentaAgent(CrawlerAgent):
             await page.close()
             await ctx.close()
 
-    async def _extract_via_js(self, page) -> List[Dict[str, Any]]:
-        """JavaScript evaluate로 직접 추출"""
+    async def _extract_via_dom(self, page) -> List[Dict[str, Any]]:
+        """DOM에서 직접 추출 (img.c-contents_cover 사용)"""
         items = await page.evaluate("""() => {
             const results = [];
-            // 카테고리 섹션별 추출
+            // renta: li.swiper-slide 안에 img.c-contents_cover
+            const slides = document.querySelectorAll('li.swiper-slide, li');
+            let rank = 0;
+
+            for (const li of slides) {
+                const img = li.querySelector('img.c-contents_cover, img[class*="cover"]');
+                if (!img) continue;
+
+                const src = img.getAttribute('data-src') || img.getAttribute('src') || '';
+                if (!src || src.includes('space.gif') || src.includes('blank')) continue;
+
+                const alt = img.getAttribute('alt') || '';
+                // alt: "タイトルの表紙" → タイトル
+                let title = alt.replace(/の表紙$/, '').trim();
+
+                // 링크에서 타이틀 추출 시도
+                if (!title || title.length < 2) {
+                    const a = li.querySelector('a[href*="/frm/item/"]');
+                    if (a) title = a.textContent.trim();
+                }
+                if (!title || title.length < 2) continue;
+
+                const linkEl = li.querySelector('a[href*="/frm/item/"]');
+                const href = linkEl ? linkEl.getAttribute('href') : '';
+                const fullUrl = href ? (href.startsWith('http') ? href : 'https://renta.papy.co.jp' + href) : 'https://renta.papy.co.jp';
+
+                const thumbUrl = src.startsWith('http') ? src : (src.startsWith('//') ? 'https:' + src : 'https://renta.papy.co.jp' + src);
+
+                rank++;
+                if (rank <= 100) {
+                    results.push({
+                        rank: rank,
+                        title: title,
+                        url: fullUrl,
+                        thumbnail_url: thumbUrl,
+                    });
+                }
+            }
+            return results;
+        }""")
+
+        return [
+            {
+                'rank': item['rank'],
+                'title': item['title'],
+                'genre': '',
+                'url': item.get('url', ''),
+                'thumbnail_url': item.get('thumbnail_url', ''),
+            }
+            for item in items[:100]
+        ]
+
+    async def _extract_via_js(self, page) -> List[Dict[str, Any]]:
+        """JavaScript evaluate로 직접 추출 (폴백)"""
+        items = await page.evaluate("""() => {
+            const results = [];
             const sections = document.querySelectorAll('ul');
             let rank = 0;
 
@@ -124,7 +141,7 @@ class RentaAgent(CrawlerAgent):
 
                     const href = a.getAttribute('href') || '';
                     const img = li.querySelector('img');
-                    const thumbSrc = img ? (img.getAttribute('src') || '') : '';
+                    const thumbSrc = img ? (img.getAttribute('data-src') || img.getAttribute('src') || '') : '';
 
                     rank++;
                     if (rank <= 100) {
@@ -160,7 +177,7 @@ class RentaAgent(CrawlerAgent):
         works_meta = [
             {'title': item['title'], 'thumbnail_url': item.get('thumbnail_url', ''),
              'url': item.get('url', ''), 'genre': item.get('genre', ''), 'rank': item.get('rank')}
-            for item in data if item.get('title')
+            for item in data if item.get('thumbnail_url')
         ]
         if works_meta:
             save_works_metadata(self.platform_id, works_meta, date=date, sub_category='')

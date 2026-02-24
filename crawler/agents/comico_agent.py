@@ -5,7 +5,7 @@
 - CSR 방식 (Playwright 필수, Vue.js SPA)
 - IP 제한 없음
 - 데일리 랭킹 기본, 장르 탭 전환 가능
-- 셀렉터: div.caption 구조 (순위+제목+작가)
+- 셀렉터: div.thumbnail 구조 (순위+제목+작가)
 - 장르별 랭킹: ?currentItemCode= 파라미터
 """
 
@@ -61,9 +61,8 @@ class ComicoAgent(CrawlerAgent):
                 await page.goto(url, wait_until='domcontentloaded', timeout=20000)
                 await page.wait_for_timeout(5000)
 
-                # 텍스트 기반 파싱 (순위번호 + 타이틀 패턴)
-                body_text = await page.inner_text('body')
-                rankings = self._parse_text_rankings(body_text, genre_key)
+                # DOM 기반 파싱 (썸네일 포함)
+                rankings = await self._parse_dom_rankings(page, genre_key)
 
                 self.genre_results[genre_key] = rankings
                 self.logger.info(f"   ✅ [{label}]: {len(rankings)}개 작품")
@@ -76,21 +75,75 @@ class ComicoAgent(CrawlerAgent):
         finally:
             await page.close()
 
+    async def _parse_dom_rankings(self, page, genre_key: str) -> List[Dict[str, Any]]:
+        """DOM에서 랭킹 아이템 + 썸네일 추출"""
+        items = await page.evaluate("""() => {
+            const results = [];
+            // comico: li 안에 a > div.thumbnail > figure > img 구조
+            const listItems = document.querySelectorAll('li');
+            let rank = 0;
+
+            for (const li of listItems) {
+                const img = li.querySelector('div.thumbnail img, figure img');
+                const captionEl = li.querySelector('div.caption, div.title, a');
+                if (!img || !captionEl) continue;
+
+                const src = img.getAttribute('src') || '';
+                const alt = img.getAttribute('alt') || '';
+                // comico 이미지는 images.comico.io 도메인
+                if (!src.includes('comico')) continue;
+
+                const titleEl = li.querySelector('div.caption h2, div.caption p, div.title');
+                const title = titleEl ? titleEl.textContent.trim() : alt;
+                if (!title || title.length < 2) continue;
+
+                const linkEl = li.querySelector('a[href*="/comic/"]');
+                const href = linkEl ? linkEl.getAttribute('href') : '';
+                const fullUrl = href ? (href.startsWith('http') ? href : 'https://www.comico.jp' + href) : '';
+
+                rank++;
+                if (rank <= 100) {
+                    results.push({
+                        rank: rank,
+                        title: title,
+                        url: fullUrl || 'https://www.comico.jp/menu/all_comic/ranking',
+                        thumbnail_url: src,
+                    });
+                }
+            }
+            return results;
+        }""")
+
+        rankings = []
+        for item in items[:100]:
+            rankings.append({
+                'rank': item['rank'],
+                'title': item['title'],
+                'genre': genre_key,
+                'url': item.get('url', ''),
+                'thumbnail_url': item.get('thumbnail_url', ''),
+            })
+
+        # DOM 파싱 실패 시 텍스트 폴백
+        if len(rankings) < 5:
+            self.logger.info("   DOM 파싱 부족, 텍스트 폴백...")
+            body_text = await page.inner_text('body')
+            rankings = self._parse_text_rankings(body_text, genre_key)
+
+        return rankings
+
     def _parse_text_rankings(self, body_text: str, genre_key: str) -> List[Dict[str, Any]]:
-        """텍스트에서 랭킹 아이템 추출"""
+        """텍스트에서 랭킹 아이템 추출 (폴백)"""
         lines = [l.strip() for l in body_text.split('\n') if l.strip()]
         rankings = []
         i = 0
 
         while i < len(lines) and len(rankings) < 100:
             line = lines[i]
-            # 숫자만 있는 줄 = 순위
             if line.isdigit() and 1 <= int(line) <= 100:
                 rank = int(line)
-                # 다음 줄 = 타이틀
                 if i + 1 < len(lines):
                     title = lines[i + 1].strip()
-                    # 타이틀이 너무 짧거나 네비게이션 텍스트면 스킵
                     if len(title) >= 2 and title not in ['位', '無料', 'New', '次へ']:
                         rankings.append({
                             'rank': rank,
@@ -111,7 +164,7 @@ class ComicoAgent(CrawlerAgent):
         works_meta = [
             {'title': item['title'], 'thumbnail_url': item.get('thumbnail_url', ''),
              'url': item.get('url', ''), 'genre': item.get('genre', ''), 'rank': item.get('rank')}
-            for item in data if item.get('title')
+            for item in data if item.get('thumbnail_url')
         ]
         if works_meta:
             save_works_metadata(self.platform_id, works_meta, date=date, sub_category='')
@@ -125,7 +178,7 @@ class ComicoAgent(CrawlerAgent):
             genre_meta = [
                 {'title': item['title'], 'thumbnail_url': item.get('thumbnail_url', ''),
                  'url': item.get('url', ''), 'genre': item.get('genre', ''), 'rank': item.get('rank')}
-                for item in rankings if item.get('title')
+                for item in rankings if item.get('thumbnail_url')
             ]
             if genre_meta:
                 save_works_metadata(self.platform_id, genre_meta, date=date, sub_category=genre_key)

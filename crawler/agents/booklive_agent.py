@@ -5,7 +5,7 @@
 - SSR 방식 (서버 렌더링, 가장 데이터 풍부)
 - 100개/페이지, 페이지네이션 있음
 - IP 제한 없음
-- 순위번호, 타이틀, 작가, 장르, 가격 등 풍부한 메타데이터
+- li.item.clearfix > div.left > div.picture > a > img 구조
 """
 
 import re
@@ -53,9 +53,14 @@ class BookliveAgent(CrawlerAgent):
                 await page.goto(url, wait_until='domcontentloaded', timeout=20000)
                 await page.wait_for_timeout(3000)
 
-                # 텍스트 기반 파싱
-                body_text = await page.inner_text('body')
-                rankings = self._parse_text_rankings(body_text, genre_key)
+                # DOM 기반 파싱 (썸네일 포함)
+                rankings = await self._parse_dom_rankings(page, genre_key)
+
+                # 폴백: 텍스트 기반
+                if len(rankings) < 5:
+                    self.logger.info("   DOM 파싱 부족, 텍스트 폴백...")
+                    body_text = await page.inner_text('body')
+                    rankings = self._parse_text_rankings(body_text, genre_key)
 
                 self.genre_results[genre_key] = rankings
                 self.logger.info(f"   ✅ [{label}]: {len(rankings)}개 작품")
@@ -68,23 +73,77 @@ class BookliveAgent(CrawlerAgent):
         finally:
             await page.close()
 
+    async def _parse_dom_rankings(self, page, genre_key: str) -> List[Dict[str, Any]]:
+        """DOM에서 랭킹 아이템 + 썸네일 추출"""
+        items = await page.evaluate("""() => {
+            const results = [];
+            // booklive: ul.search_item_list > li.item > div.left > div.picture > a > img
+            // img id: search_image_1, search_image_2, ...
+            // img alt에 타이틀 포함
+            const listItems = document.querySelectorAll('ul.search_item_list li.item, li.item.clearfix');
+            let rank = 0;
+
+            for (const li of listItems) {
+                // 썸네일 (div.picture 안의 img)
+                const img = li.querySelector('div.picture img, img[id^="search_image"]');
+                if (!img) continue;
+
+                const src = img.getAttribute('src') || '';
+                if (!src || src.includes('blank') || src.includes('spacer')) continue;
+
+                // 타이틀: img alt 또는 텍스트 요소
+                let title = img.getAttribute('alt') || '';
+                if (!title || title.length < 2) {
+                    const titleEl = li.querySelector('a.product_title, p.title a, h3 a, a[href*="/product/"]');
+                    if (titleEl) title = titleEl.textContent.trim();
+                }
+                if (!title || title.length < 2) continue;
+
+                // URL
+                const linkEl = li.querySelector('a[href*="/product/"]');
+                const href = linkEl ? linkEl.getAttribute('href') : '';
+                const fullUrl = href ? (href.startsWith('http') ? href : 'https://booklive.jp' + href) : '';
+
+                const thumbUrl = src.startsWith('http') ? src : (src.startsWith('//') ? 'https:' + src : '');
+
+                rank++;
+                if (rank <= 100) {
+                    results.push({
+                        rank: rank,
+                        title: title,
+                        url: fullUrl,
+                        thumbnail_url: thumbUrl,
+                    });
+                }
+            }
+            return results;
+        }""")
+
+        return [
+            {
+                'rank': item['rank'],
+                'title': item['title'],
+                'genre': genre_key,
+                'url': item.get('url', ''),
+                'thumbnail_url': item.get('thumbnail_url', ''),
+            }
+            for item in items[:100]
+        ]
+
     def _parse_text_rankings(self, body_text: str, genre_key: str) -> List[Dict[str, Any]]:
-        """텍스트에서 랭킹 아이템 추출 (N位 패턴)"""
+        """텍스트에서 랭킹 아이템 추출 (N位 패턴) - 폴백"""
         lines = [l.strip() for l in body_text.split('\n') if l.strip()]
         rankings = []
 
         i = 0
         while i < len(lines) and len(rankings) < 100:
             line = lines[i]
-            # "N位" 패턴 감지
             rank_match = re.match(r'^(\d+)位$', line)
             if rank_match:
                 rank = int(rank_match.group(1))
-                # 다음 줄 = 타이틀
                 if i + 1 < len(lines):
                     title = lines[i + 1].strip()
                     if len(title) >= 2 and not title.endswith('位'):
-                        # 장르 찾기 (타이틀 이후 줄들에서)
                         genre = genre_key
                         if not genre:
                             for j in range(i + 2, min(i + 6, len(lines))):
@@ -113,7 +172,7 @@ class BookliveAgent(CrawlerAgent):
         works_meta = [
             {'title': item['title'], 'thumbnail_url': item.get('thumbnail_url', ''),
              'url': item.get('url', ''), 'genre': item.get('genre', ''), 'rank': item.get('rank')}
-            for item in data if item.get('title')
+            for item in data if item.get('thumbnail_url')
         ]
         if works_meta:
             save_works_metadata(self.platform_id, works_meta, date=date, sub_category='')
@@ -127,7 +186,7 @@ class BookliveAgent(CrawlerAgent):
             genre_meta = [
                 {'title': item['title'], 'thumbnail_url': item.get('thumbnail_url', ''),
                  'url': item.get('url', ''), 'genre': item.get('genre', ''), 'rank': item.get('rank')}
-                for item in rankings if item.get('title')
+                for item in rankings if item.get('thumbnail_url')
             ]
             if genre_meta:
                 save_works_metadata(self.platform_id, genre_meta, date=date, sub_category=genre_key)
