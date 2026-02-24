@@ -1,7 +1,8 @@
 {
   "permissions": {
     "allow": [
-      "Bash(playwright install:*)"
+      "Bash(playwright install:*)",
+      "Bash(node -e \":*)"
     ]
   }
 }

@@ -6,8 +6,6 @@ import { DateSelector } from "@/components/date-selector";
 import { PlatformTabs } from "@/components/platform-tabs";
 import { GenrePills } from "@/components/genre-pills";
 import { RankingTable } from "@/components/ranking-table";
-import { RankChartDialog } from "@/components/rank-chart-dialog";
-import { ReviewDialog } from "@/components/review-dialog";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -24,16 +22,6 @@ export default function Home() {
   const [riverseCounts, setRiverseCounts] = useState<Record<string, number>>({});
   const [riverseOnly, setRiverseOnly] = useState(false);
   const [loading, setLoading] = useState(true);
-
-  // 차트 모달
-  const [chartOpen, setChartOpen] = useState(false);
-  const [chartTitle, setChartTitle] = useState("");
-  const [chartTitleKr, setChartTitleKr] = useState("");
-
-  // 리뷰 모달
-  const [reviewOpen, setReviewOpen] = useState(false);
-  const [reviewTitle, setReviewTitle] = useState("");
-  const [reviewTitleKr, setReviewTitleKr] = useState("");
 
   // 초기 날짜 로드
   useEffect(() => {
@@ -101,20 +89,6 @@ export default function Home() {
   const displayRankings = riverseOnly
     ? rankings.filter((r) => r.is_riverse)
     : rankings;
-
-  const handleChartClick = (title: string) => {
-    const item = rankings.find((r) => r.title === title);
-    setChartTitle(title);
-    setChartTitleKr(item?.title_kr || "");
-    setChartOpen(true);
-  };
-
-  const handleReviewClick = (title: string) => {
-    const item = rankings.find((r) => r.title === title);
-    setReviewTitle(title);
-    setReviewTitleKr(item?.title_kr || "");
-    setReviewOpen(true);
-  };
 
   // 출처 링크
   const sourceUrl = platform?.sourceUrl || "";
@@ -205,8 +179,6 @@ export default function Home() {
             rankings={displayRankings}
             platformColor={platformColor}
             platform={selectedPlatform}
-            onChartClick={handleChartClick}
-            onReviewClick={handleReviewClick}
           />
         )}
 
@@ -216,26 +188,6 @@ export default function Home() {
           RIVERSE Inc. | 데이터: Supabase PostgreSQL | 매일 자동 수집
         </footer>
       </div>
-
-      {/* 차트 모달 */}
-      <RankChartDialog
-        open={chartOpen}
-        onOpenChange={setChartOpen}
-        title={chartTitle}
-        titleKr={chartTitleKr}
-        platform={selectedPlatform}
-        platformColor={platformColor}
-      />
-
-      {/* 리뷰 모달 */}
-      <ReviewDialog
-        open={reviewOpen}
-        onOpenChange={setReviewOpen}
-        title={reviewTitle}
-        titleKr={reviewTitleKr}
-        platform={selectedPlatform}
-        platformColor={platformColor}
-      />
     </div>
   );
 }

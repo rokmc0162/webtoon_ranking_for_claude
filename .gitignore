@@ -9,6 +9,12 @@ env/
 ENV/
 .venv
 
+# Node.js / Next.js
+node_modules/
+.next/
+out/
+*.tsbuildinfo
+
 # IDE
 .vscode/
 .idea/
@@ -35,9 +41,14 @@ playwright/
 
 # Environment
 .env
+.env.local
 
 # Tunnel (동적 생성 파일)
 data/tunnel_url.txt
 
 # Claude Code 로컬 설정
 .claude/settings.local.json
+.agents/
+
+# Large docs (Excel 등)
+docs/*.xlsx

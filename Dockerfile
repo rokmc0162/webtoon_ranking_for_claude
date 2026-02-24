@@ -1,61 +1,39 @@
 # =============================================================================
-# 웹툰 랭킹 크롤러 + 대시보드 Docker 이미지
-# 베이스: Microsoft Playwright (Python + Chromium 포함)
+# 웹툰 랭킹 대시보드 Docker 이미지 (경량)
+# 베이스: node:20-alpine (~50MB)
+# NAS에서는 대시보드 + Cloudflare 터널만 실행
+# 크롤러는 PC에서 Task Scheduler로 별도 실행
 # =============================================================================
 
-FROM mcr.microsoft.com/playwright/python:v1.50.0-noble
+FROM node:20-alpine
 
-# 타임존 설정 (일본 시간 기준 크롤링 스케줄)
 ENV TZ=Asia/Tokyo
-ENV LANG=ko_KR.UTF-8
-ENV PYTHONUNBUFFERED=1
+ENV PORT=3000
+ENV HOSTNAME=0.0.0.0
 
-# cron + 로케일 설치
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    cron \
-    locales \
-    curl \
-    && sed -i '/ko_KR.UTF-8/s/^# //g' /etc/locale.gen \
-    && locale-gen ko_KR.UTF-8 \
-    && ln -snf /usr/share/zoneinfo/$TZ /etc/localtime \
-    && echo $TZ > /etc/timezone \
-    && apt-get clean && rm -rf /var/lib/apt/lists/*
+# curl + tzdata 설치
+RUN apk add --no-cache curl tzdata \
+    && cp /usr/share/zoneinfo/$TZ /etc/localtime \
+    && echo $TZ > /etc/timezone
 
-# cloudflared 설치 (linux-amd64)
-RUN curl -fsSL https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb \
-    -o /tmp/cloudflared.deb \
-    && dpkg -i /tmp/cloudflared.deb \
-    && rm /tmp/cloudflared.deb
+# cloudflared 바이너리 설치
+RUN curl -fsSL https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 \
+    -o /usr/local/bin/cloudflared \
+    && chmod +x /usr/local/bin/cloudflared
 
-# 작업 디렉토리
 WORKDIR /app
 
-# Python 의존성 설치 (캐시 레이어 활용)
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# Next.js standalone (PC에서 미리 빌드됨)
+COPY dashboard-next/ ./dashboard-next/
+COPY docker/tunnel.sh ./docker/tunnel.sh
 
-# Playwright 브라우저 설치 (이미지에 포함되어 있지만 버전 맞추기)
-RUN playwright install chromium
-
-# 프로젝트 파일 복사
-COPY crawler/ ./crawler/
-COPY dashboard/ ./dashboard/
-COPY docs/ ./docs/
-COPY .streamlit/ ./.streamlit/
-COPY docker/ ./docker/
-
-# crontab 등록
-COPY docker/crontab /etc/cron.d/webtoon-cron
-RUN chmod 0644 /etc/cron.d/webtoon-cron \
-    && crontab /etc/cron.d/webtoon-cron
-
-# 데이터/로그 디렉토리 (볼륨 마운트 포인트)
 RUN mkdir -p /app/data /app/logs
 
-# entrypoint 설정
-COPY docker/entrypoint.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh
+# CRLF 제거 + 실행 권한
+RUN sed -i 's/\r$//' /app/docker/tunnel.sh \
+    && chmod +x /app/docker/tunnel.sh
 
-EXPOSE 8501
+EXPOSE 3000
 
-ENTRYPOINT ["/entrypoint.sh"]
+# Next.js + Cloudflare 터널 시작
+CMD ["sh", "-c", "/app/docker/tunnel.sh & cd /app/dashboard-next && node server.js"]

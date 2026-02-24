@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { RankBadge } from "./rank-badge";
 import { RankChange } from "./rank-change";
 import { RiverseBadge } from "./riverse-badge";
@@ -10,8 +11,6 @@ interface RankingTableProps {
   rankings: Ranking[];
   platformColor: string;
   platform: string;
-  onChartClick: (title: string) => void;
-  onReviewClick: (title: string) => void;
 }
 
 function Thumbnail({
@@ -64,8 +63,6 @@ export function RankingTable({
   rankings,
   platformColor,
   platform,
-  onChartClick,
-  onReviewClick,
 }: RankingTableProps) {
   if (rankings.length === 0) {
     return (
@@ -115,16 +112,10 @@ export function RankingTable({
               장르
             </th>
             <th
-              style={{ width: 48 }}
+              style={{ width: 56 }}
               className="h-10 px-2 text-center font-medium text-foreground"
             >
-              추이
-            </th>
-            <th
-              style={{ width: 48 }}
-              className="h-10 px-2 text-center font-medium text-foreground"
-            >
-              정보
+              분석
             </th>
           </tr>
         </thead>
@@ -152,20 +143,26 @@ export function RankingTable({
               {/* 작품명 */}
               <td className="py-2 px-2 align-middle overflow-hidden">
                 <div className="truncate">
-                  {r.url ? (
+                  <Link
+                    href={`/title/${platform}/${encodeURIComponent(r.title)}`}
+                    target="_blank"
+                    className="font-medium text-foreground hover:underline"
+                    style={{ textDecorationColor: platformColor }}
+                  >
+                    {r.title}
+                  </Link>
+                  {r.is_riverse && <RiverseBadge />}
+                  {r.url && (
                     <a
                       href={r.url}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="font-medium text-foreground hover:underline"
-                      style={{ textDecorationColor: platformColor }}
+                      className="ml-1 text-xs text-muted-foreground hover:text-foreground"
+                      title="원본 페이지"
                     >
-                      {r.title}
+                      🔗
                     </a>
-                  ) : (
-                    <span className="font-medium">{r.title}</span>
                   )}
-                  {r.is_riverse && <RiverseBadge />}
                 </div>
                 {/* 모바일: 한국어 제목 + 장르 인라인 */}
                 <div className="md:hidden mt-0.5 truncate">
@@ -196,26 +193,16 @@ export function RankingTable({
                 )}
               </td>
 
-              {/* 추이 */}
+              {/* 분석 페이지 링크 */}
               <td className="py-2 px-2 text-center align-middle">
-                <button
-                  onClick={() => onChartClick(r.title)}
-                  className="text-xl opacity-60 hover:opacity-100 transition-opacity cursor-pointer"
-                  title="순위 추이"
+                <Link
+                  href={`/title/${platform}/${encodeURIComponent(r.title)}`}
+                  target="_blank"
+                  className="text-xl opacity-60 hover:opacity-100 transition-opacity"
+                  title="작품 상세 분석"
                 >
-                  📈
-                </button>
-              </td>
-
-              {/* 리뷰/정보 */}
-              <td className="py-2 px-2 text-center align-middle">
-                <button
-                  onClick={() => onReviewClick(r.title)}
-                  className="text-xl opacity-60 hover:opacity-100 transition-opacity cursor-pointer"
-                  title="작품 정보/리뷰"
-                >
-                  💬
-                </button>
+                  📊
+                </Link>
               </td>
             </tr>
           ))}

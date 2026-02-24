@@ -1,15 +1,26 @@
+version: '3'
 services:
-  webtoon-ranking:
-    build: .
-    container_name: webtoon-ranking
+  dashboard:
+    image: node:20-alpine
+    container_name: webtoon-dashboard
     restart: unless-stopped
     ports:
-      - "8501:8501"
+      - "3000:3000"
     volumes:
-      - ./data:/app/data
-      - ./logs:/app/logs
+      - ./dashboard-next:/app
     env_file:
       - .env
     environment:
-      - LANG=ko_KR.UTF-8
       - TZ=Asia/Tokyo
+      - PORT=3000
+      - HOSTNAME=0.0.0.0
+    working_dir: /app
+    command: ["node", "server.js"]
+
+  tunnel:
+    image: cloudflare/cloudflared:latest
+    container_name: webtoon-tunnel
+    restart: unless-stopped
+    command: ["tunnel", "--url", "http://dashboard:3000"]
+    depends_on:
+      - dashboard
