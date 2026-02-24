@@ -81,10 +81,10 @@ class MechacomicAgent(CrawlerAgent):
             await page.close()
 
     async def _crawl_category(self, page, genre_id: str, genre_key: str) -> List[Dict[str, Any]]:
-        """특정 카테고리의 랭킹 크롤링 (3페이지, 상위 50개)"""
+        """특정 카테고리의 랭킹 크롤링 (5페이지, 상위 100개)"""
         rankings = []
 
-        for page_num in range(1, 4):
+        for page_num in range(1, 6):
             # URL 구성: genre + page 파라미터
             params = []
             if genre_id:
@@ -112,7 +112,7 @@ class MechacomicAgent(CrawlerAgent):
                     continue
 
         rankings.sort(key=lambda x: x['rank'])
-        return rankings[:50]
+        return rankings[:100]
 
     async def _parse_item(self, item) -> Dict[str, Any]:
         """개별 랭킹 아이템 파싱"""

@@ -1,10 +1,11 @@
 """
 BookWalker (bookwalker.jp) 랭킹 수집기.
 - Playwright로 월간 만화 랭킹 페이지 스크래핑
-- JSON-LD (Schema.org Product) 구조화 데이터 파싱
+- rankingCard DOM 요소에서 타이틀/평점 추출
 - 인증/API 키 불필요
 """
 import asyncio
+import re
 import logging
 from typing import List, Dict, Optional
 from playwright.async_api import async_playwright, Browser, Page
@@ -17,7 +18,22 @@ from crawler.sns.external_db import (
 
 logger = logging.getLogger('crawler.sns.bookwalker')
 
-RANKING_URL = 'https://bookwalker.jp/rank/'
+# 만화 카테고리 랭킹
+RANKING_URL = 'https://bookwalker.jp/rank/?category_id=2'
+
+
+def _strip_volume(title: str) -> str:
+    """타이틀에서 권수 표기를 제거 (매칭용).
+    예: '転生したらスライムだった件（３１）' → '転生したらスライムだった件'
+        'BORUTO 11巻' → 'BORUTO'
+    """
+    # 전각/반각 괄호 + 숫자
+    t = re.sub(r'[\s　]*[（(][\d０-９]+[）)][\s　]*$', '', title)
+    # '11巻', '第3巻' 등
+    t = re.sub(r'[\s　]*第?[\d０-９]+巻[\s　]*$', '', t)
+    # ' 3', ' 11' (끝에 숫자만)
+    t = re.sub(r'[\s　]+[\d０-９]+[\s　]*$', '', t)
+    return t.strip()
 
 
 class BookWalkerCollector(BaseCollector):
@@ -130,43 +146,48 @@ class BookWalkerCollector(BaseCollector):
 
         try:
             await page.goto(RANKING_URL, wait_until='domcontentloaded', timeout=20000)
-            await asyncio.sleep(3)
+            await asyncio.sleep(4)
 
-            # JSON-LD에서 Product 데이터 추출 시도
-            items = await page.evaluate('''() => {
+            items = await page.evaluate("""() => {
                 const results = [];
+                const cards = document.querySelectorAll('.rankingCard');
 
-                // JSON-LD 파싱
-                const scripts = document.querySelectorAll('script[type="application/ld+json"]');
-                scripts.forEach((s, idx) => {
-                    try {
-                        const d = JSON.parse(s.textContent);
-                        if (d['@type'] === 'Product' || d['@type'] === 'Book') {
-                            results.push({
-                                title: d.name || '',
-                                rating: d.aggregateRating ? parseFloat(d.aggregateRating.ratingValue) : null,
-                                review_count: d.aggregateRating ? parseInt(d.aggregateRating.reviewCount) : null,
-                                url: d.url || '',
-                                rank: idx + 1,
-                            });
-                        }
-                    } catch(e) {}
+                cards.forEach((card, idx) => {
+                    // 순위 번호
+                    const numEl = card.querySelector('.rankingNum, .ranking-no');
+                    let rank = idx + 1;
+                    if (numEl) {
+                        const m = numEl.textContent.match(/\\d+/);
+                        if (m) rank = parseInt(m[0]);
+                    }
+
+                    // 타이틀: a[href*="/de"] 링크 텍스트
+                    const linkEl = card.querySelector('a[href*="/de"]');
+                    const title = linkEl ? linkEl.textContent.trim() : '';
+                    const url = linkEl ? linkEl.getAttribute('href') || '' : '';
+
+                    // 평점
+                    const ratingText = card.textContent;
+                    let rating = null;
+                    const ratingMatch = ratingText.match(/(\\d+\\.\\d+)/);
+                    if (ratingMatch) rating = parseFloat(ratingMatch[1]);
+
+                    if (title && title.length > 2) {
+                        results.push({ title, rating, review_count: null, url, rank });
+                    }
                 });
 
-                // JSON-LD가 없으면 DOM에서 직접 추출
+                // rankingCard가 없으면 fallback: a[href*="/de"] 직접 추출
                 if (results.length === 0) {
-                    const items = document.querySelectorAll('.o-contents-section__body .m-book-item, .ranking-list li, .o-tile, [class*="rank"]');
-                    items.forEach((item, idx) => {
-                        const titleEl = item.querySelector('a[title], .title, h3, h2, [class*="title"]');
-                        const ratingEl = item.querySelector('[class*="rating"], [class*="star"], .score');
-                        const linkEl = item.querySelector('a[href*="/de"]');
-
-                        if (titleEl) {
+                    const links = document.querySelectorAll('.rankingMainContents a[href*="/de"]');
+                    links.forEach((link, idx) => {
+                        const title = link.textContent.trim();
+                        if (title && title.length > 2) {
                             results.push({
-                                title: titleEl.textContent.trim() || titleEl.getAttribute('title') || '',
-                                rating: ratingEl ? parseFloat(ratingEl.textContent) || null : null,
+                                title,
+                                rating: null,
                                 review_count: null,
-                                url: linkEl ? linkEl.getAttribute('href') || '' : '',
+                                url: link.getAttribute('href') || '',
                                 rank: idx + 1,
                             });
                         }
@@ -174,9 +195,17 @@ class BookWalkerCollector(BaseCollector):
                 }
 
                 return results;
-            }''')
+            }""")
 
-            all_items.extend(items)
+            # 권수 제거 후 중복 제거
+            seen_titles = set()
+            for item in items:
+                stripped = _strip_volume(item['title'])
+                if stripped and stripped not in seen_titles:
+                    seen_titles.add(stripped)
+                    item['title_original'] = item['title']
+                    item['title'] = stripped
+                    all_items.append(item)
 
         except Exception as e:
             logger.warning(f"BookWalker scrape error: {e}")

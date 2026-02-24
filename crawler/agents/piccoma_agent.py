@@ -63,7 +63,7 @@ class PiccomaAgent(CrawlerAgent):
 
                 items = await page.query_selector_all('.PCM-productTile ul > li')
                 rankings = []
-                for item in items[:50]:
+                for item in items[:100]:
                     try:
                         entry = await self._parse_item(item)
                         if entry:

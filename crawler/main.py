@@ -1,13 +1,18 @@
 """
-메인 크롤러 - 4개 플랫폼 병렬 실행 (Agent 기반)
+메인 크롤러 - 12개 플랫폼 병렬 실행 (Agent 기반)
 
 실행 방법:
     python3 crawler/main.py
+
+플랫폼:
+- 기존: 픽코마, 라인망가, 메챠코믹, 코믹시모아
+- 신규: 코미코, 렌타, 북라이브, 이북재팬, 레진, 벨툰, U-NEXT, 시모아(어덜트)
 
 변경사항:
 - 순차 실행 → 병렬 실행 (asyncio.gather)
 - 각 플랫폼이 독립 에이전트로 실행
 - 재시도 로직 내장 (exponential backoff)
+- 100위까지 수집 (기존 50위)
 """
 
 import asyncio
@@ -49,14 +54,15 @@ def main():
             except Exception as e:
                 print(f"⚠️  상세 스크래핑 중 오류 (무시): {e}")
 
+        total = len(results)
         if success_count == 0:
             print("⚠️  모든 플랫폼 크롤링 실패")
             sys.exit(1)
-        elif success_count < 4:
-            print(f"⚠️  일부 플랫폼 크롤링 실패 ({success_count}/4)")
+        elif success_count < total:
+            print(f"⚠️  일부 플랫폼 크롤링 실패 ({success_count}/{total})")
             sys.exit(0)  # 일부 성공은 정상 종료
         else:
-            print("🎉 모든 플랫폼 크롤링 성공!")
+            print(f"🎉 모든 플랫폼 크롤링 성공! ({total}개)")
             sys.exit(0)
 
     except KeyboardInterrupt:

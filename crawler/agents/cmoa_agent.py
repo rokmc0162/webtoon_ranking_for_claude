@@ -82,7 +82,7 @@ class CmoaAgent(CrawlerAgent):
                 self.logger.info(f"   작품 요소 {len(items)}개 발견")
 
                 rankings = []
-                for item in items[:50]:
+                for item in items[:100]:
                     try:
                         entry = await self._parse_item(item)
                         if entry:

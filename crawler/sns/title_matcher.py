@@ -12,8 +12,16 @@ def normalize_title(title: str) -> str:
     if not title:
         return ""
     t = title.strip()
+    # 앞에 붙은 브랜드/레이블 제거 (【ラブコフレ】, [スパイシーレディ] 등)
+    t = re.sub(r'^[\[【（(][^\]】）)]*[\]】）)]\s*', '', t)
     # 끝에 붙은 괄호 제거 (【最新話】, [完結], (フルカラー) 등)
-    t = re.sub(r'[\[【（(][^\]】）)]*[\]】）)]$', '', t).strip()
+    t = re.sub(r'[\s　]*[\[【（(][^\]】）)]*[\]】）)]$', '', t).strip()
+    # 끝의 권수 제거 (（３１）, 11巻, 第3巻 등)
+    t = re.sub(r'[\s　]*[（(][\d０-９]+[）)][\s　]*$', '', t)
+    t = re.sub(r'[\s　]*第?[\d０-９]+巻[\s　]*$', '', t)
+    t = re.sub(r'[\s　]+[\d０-９]+[\s　]*$', '', t)
+    # @COMIC 등 접미사 제거
+    t = re.sub(r'[@＠]COMIC\s*$', '', t, flags=re.IGNORECASE)
     # 공백 정규화
     t = re.sub(r'[\s　]+', ' ', t).strip()
     # 유니코드 정규화 (NFKC)

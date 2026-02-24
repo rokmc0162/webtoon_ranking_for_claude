@@ -96,7 +96,7 @@ class LinemangaAgent(CrawlerAgent):
             items = await page.query_selector_all('.MdCMN05List ol > li')
             self.logger.info(f"   작품 요소 {len(items)}개 발견")
 
-            for item in items[:50]:
+            for item in items[:100]:
                 try:
                     entry = await self._parse_item(item)
                     if entry:
@@ -230,7 +230,7 @@ class LinemangaAgent(CrawlerAgent):
                     'thumbnail_url': thumbnail_url,
                 })
 
-                if rank >= 50:
+                if rank >= 100:
                     break
 
             except Exception as e:

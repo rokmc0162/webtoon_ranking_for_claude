@@ -19,6 +19,9 @@ logging.basicConfig(
 )
 logger = logging.getLogger('crawler.orchestrator')
 
+# 전체 플랫폼 수
+TOTAL_PLATFORMS = 12
+
 
 class CrawlerOrchestrator:
     """
@@ -53,23 +56,43 @@ class CrawlerOrchestrator:
         from crawler.agents.linemanga_agent import LinemangaAgent
         from crawler.agents.mechacomic_agent import MechacomicAgent
         from crawler.agents.cmoa_agent import CmoaAgent
+        from crawler.agents.comico_agent import ComicoAgent
+        from crawler.agents.renta_agent import RentaAgent
+        from crawler.agents.booklive_agent import BookliveAgent
+        from crawler.agents.ebookjapan_agent import EbookjapanAgent
+        from crawler.agents.lezhin_agent import LezhinAgent
+        from crawler.agents.beltoon_agent import BeltoonAgent
+        from crawler.agents.unext_agent import UnextAgent
+        from crawler.agents.cmoa_sexy_agent import CmoaSexyAgent
 
         # Initialize browser
         async with async_playwright() as p:
             browser = await p.chromium.launch(headless=True)
 
             try:
-                # Create agent instances
+                # Create agent instances (12개 플랫폼)
                 agents = [
+                    # 기존 4개 플랫폼
                     PiccomaAgent(),
                     LinemangaAgent(),
                     MechacomicAgent(),
-                    CmoaAgent()
+                    CmoaAgent(),
+                    # 신규 8개 플랫폼
+                    ComicoAgent(),
+                    RentaAgent(),
+                    BookliveAgent(),
+                    EbookjapanAgent(),
+                    LezhinAgent(),
+                    BeltoonAgent(),
+                    UnextAgent(),
+                    CmoaSexyAgent(),
                 ]
+
+                total = len(agents)
 
                 # Execute all agents in parallel
                 # return_exceptions=True prevents one failure from canceling others
-                self.logger.info("Starting parallel execution of 4 agents...")
+                self.logger.info(f"Starting parallel execution of {total} agents...")
 
                 results = await asyncio.gather(
                     *[agent.execute(browser) for agent in agents],
@@ -99,8 +122,8 @@ class CrawlerOrchestrator:
                 self.logger.info("=" * 70)
                 self.logger.info("✅ 크롤링 완료")
                 self.logger.info("=" * 70)
-                self.logger.info(f"📊 성공: {success_count}/4개 플랫폼")
-                self.logger.info(f"❌ 실패: {fail_count}/4개 플랫폼")
+                self.logger.info(f"📊 성공: {success_count}/{total}개 플랫폼")
+                self.logger.info(f"❌ 실패: {fail_count}/{total}개 플랫폼")
                 self.logger.info("")
 
                 # Print detailed results
@@ -119,7 +142,7 @@ class CrawlerOrchestrator:
                 self.logger.info("=" * 70)
 
                 if fail_count > 0:
-                    self.logger.warning(f"⚠️  일부 플랫폼 크롤링 실패 ({success_count}/4)")
+                    self.logger.warning(f"⚠️  일부 플랫폼 크롤링 실패 ({success_count}/{total})")
 
                 return results_dict
 

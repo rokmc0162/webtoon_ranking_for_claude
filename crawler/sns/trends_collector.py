@@ -8,10 +8,14 @@ import logging
 from typing import List, Dict
 
 try:
-    from pytrends_modern import TrendReq
+    from pytrends.request import TrendReq
     HAS_PYTRENDS = True
 except ImportError:
-    HAS_PYTRENDS = False
+    try:
+        from pytrends_modern import TrendReq
+        HAS_PYTRENDS = True
+    except ImportError:
+        HAS_PYTRENDS = False
 
 from crawler.sns.base_collector import BaseCollector
 from crawler.sns.external_db import save_external_metrics_batch
