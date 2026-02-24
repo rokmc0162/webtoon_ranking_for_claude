@@ -14,19 +14,31 @@ LOG_FILE="${LOG_DIR}/crawler_$(date +%Y-%m-%d).log"
 # 로그 디렉토리 생성
 mkdir -p "${LOG_DIR}"
 
+# .env 로딩
+cd "${PROJECT_DIR}"
+set -a
+source .env 2>/dev/null || true
+set +a
+
+# git pull (최신 코드 반영)
+git pull origin main --quiet 2>/dev/null || true
+
 # 실행 시작 로그
 echo "" >> "${LOG_FILE}"
 echo "========================================" >> "${LOG_FILE}"
 echo "[$(date '+%Y-%m-%d %H:%M:%S')] 크롤러 실행 시작" >> "${LOG_FILE}"
 echo "========================================" >> "${LOG_FILE}"
 
-# 크롤러 실행
-cd "${PROJECT_DIR}"
+# 1. 메인 크롤링 (12개 플랫폼)
 /usr/bin/python3 crawler/main.py >> "${LOG_FILE}" 2>&1
 EXIT_CODE=$?
+echo "[$(date '+%Y-%m-%d %H:%M:%S')] 랭킹 크롤링 완료 (exit: ${EXIT_CODE})" >> "${LOG_FILE}"
 
-# 실행 결과 로그
-echo "[$(date '+%Y-%m-%d %H:%M:%S')] 크롤러 종료 (exit code: ${EXIT_CODE})" >> "${LOG_FILE}"
+# 2. 외부 데이터 수집 (기본 3개: anilist, mal, youtube)
+echo "[$(date '+%Y-%m-%d %H:%M:%S')] 외부 데이터 수집 시작..." >> "${LOG_FILE}"
+/usr/bin/python3 crawler/main_external.py --max-works 200 >> "${LOG_FILE}" 2>&1
+echo "[$(date '+%Y-%m-%d %H:%M:%S')] 외부 데이터 수집 완료" >> "${LOG_FILE}"
+
 echo "" >> "${LOG_FILE}"
 
 # 30일 이상 된 로그 파일 삭제
