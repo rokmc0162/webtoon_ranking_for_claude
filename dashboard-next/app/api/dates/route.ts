@@ -6,5 +6,9 @@ export async function GET() {
     SELECT DISTINCT date FROM rankings ORDER BY date DESC
   `;
   const dates = rows.map((r) => r.date);
-  return NextResponse.json(dates);
+  return NextResponse.json(dates, {
+    headers: {
+      "Cache-Control": "public, s-maxage=300, stale-while-revalidate=600",
+    },
+  });
 }

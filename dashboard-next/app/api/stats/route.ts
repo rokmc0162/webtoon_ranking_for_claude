@@ -24,5 +24,9 @@ export async function GET(request: NextRequest) {
     stats[r.platform] = { total: r.total, riverse: r.riverse };
   }
 
-  return NextResponse.json(stats);
+  return NextResponse.json(stats, {
+    headers: {
+      "Cache-Control": "public, s-maxage=300, stale-while-revalidate=600",
+    },
+  });
 }

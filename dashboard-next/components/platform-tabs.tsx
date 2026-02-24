@@ -13,7 +13,7 @@ interface PlatformTabsProps {
 
 export function PlatformTabs({ selected, onSelect, stats }: PlatformTabsProps) {
   return (
-    <div className="grid grid-cols-4 gap-2 sm:gap-3">
+    <div className="grid grid-cols-4 sm:grid-cols-6 gap-2 sm:gap-3">
       {PLATFORMS.map((p) => {
         const isActive = selected === p.id;
         const stat = stats[p.id];
@@ -22,7 +22,7 @@ export function PlatformTabs({ selected, onSelect, stats }: PlatformTabsProps) {
             key={p.id}
             onClick={() => onSelect(p.id)}
             className={cn(
-              "flex flex-col items-center gap-1.5 rounded-xl p-3 transition-all cursor-pointer",
+              "flex flex-col items-center gap-1.5 rounded-xl p-2 sm:p-3 transition-all cursor-pointer",
               "border-2 hover:shadow-md",
               isActive
                 ? "shadow-lg"
@@ -38,22 +38,36 @@ export function PlatformTabs({ selected, onSelect, stats }: PlatformTabsProps) {
                 : undefined
             }
           >
-            <Image
-              src={p.logo}
-              alt={p.name}
-              width={48}
-              height={48}
-              className="rounded-xl object-cover w-10 h-10 sm:w-12 sm:h-12"
-            />
+            {p.logo ? (
+              <Image
+                src={p.logo}
+                alt={p.name}
+                width={48}
+                height={48}
+                className="rounded-xl object-contain w-10 h-10 sm:w-12 sm:h-12"
+              />
+            ) : (
+              <div
+                className="rounded-xl w-10 h-10 sm:w-12 sm:h-12 flex items-center justify-center text-white font-bold text-lg"
+                style={{ backgroundColor: p.color }}
+              >
+                {p.name.charAt(0)}
+              </div>
+            )}
             <span
               className={cn(
-                "text-xs sm:text-sm font-bold",
+                "text-[10px] sm:text-xs font-bold leading-tight text-center",
                 !isActive && "text-foreground"
               )}
               style={isActive ? { color: p.color } : undefined}
             >
               {p.name}
             </span>
+            {stat && (
+              <span className="text-[9px] sm:text-[10px] text-muted-foreground">
+                {stat.total}개
+              </span>
+            )}
           </button>
         );
       })}

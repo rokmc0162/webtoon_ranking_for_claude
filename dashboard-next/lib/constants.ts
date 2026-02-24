@@ -77,7 +77,7 @@ export const PLATFORMS: PlatformInfo[] = [
     id: "comico",
     name: "코미코",
     color: "#FF4081",
-    logo: "",
+    logo: "/comico.png",
     sourceUrl: "https://www.comico.jp/menu/all_comic/ranking",
     genres: [
       { key: "", label: "종합" },
@@ -97,7 +97,7 @@ export const PLATFORMS: PlatformInfo[] = [
     id: "renta",
     name: "렌타",
     color: "#E91E63",
-    logo: "",
+    logo: "/renta.svg",
     sourceUrl: "https://renta.papy.co.jp/renta/sc/frm/page/ranking_c.htm",
     genres: [
       { key: "", label: "종합" },
@@ -107,7 +107,7 @@ export const PLATFORMS: PlatformInfo[] = [
     id: "booklive",
     name: "북라이브",
     color: "#2196F3",
-    logo: "",
+    logo: "/booklive.png",
     sourceUrl: "https://booklive.jp/ranking/day",
     genres: [
       { key: "", label: "종합" },
@@ -124,7 +124,7 @@ export const PLATFORMS: PlatformInfo[] = [
     id: "ebookjapan",
     name: "이북재팬",
     color: "#FF5722",
-    logo: "",
+    logo: "/ebookjapan.svg",
     sourceUrl: "https://ebookjapan.yahoo.co.jp/ranking/",
     genres: [
       { key: "", label: "종합" },
@@ -139,7 +139,7 @@ export const PLATFORMS: PlatformInfo[] = [
     id: "lezhin",
     name: "레진코믹스",
     color: "#9C27B0",
-    logo: "",
+    logo: "/lezhin.png",
     sourceUrl: "https://lezhin.jp/ranking",
     genres: [
       { key: "", label: "종합" },
@@ -155,7 +155,7 @@ export const PLATFORMS: PlatformInfo[] = [
     id: "beltoon",
     name: "벨툰",
     color: "#673AB7",
-    logo: "",
+    logo: "/beltoon.svg",
     sourceUrl: "https://www.beltoon.jp/app/all/ranking",
     genres: [
       { key: "", label: "종합" },
@@ -165,7 +165,7 @@ export const PLATFORMS: PlatformInfo[] = [
     id: "unext",
     name: "U-NEXT",
     color: "#00BCD4",
-    logo: "",
+    logo: "/unext.png",
     sourceUrl: "https://video.unext.jp/book/ranking/comic",
     genres: [
       { key: "", label: "종합" },
@@ -175,7 +175,7 @@ export const PLATFORMS: PlatformInfo[] = [
     id: "cmoa_sexy",
     name: "시모아(어덜트)",
     color: "#FF8A65",
-    logo: "",
+    logo: "/cmoa_sexy.jpg",
     sourceUrl: "https://www.cmoa.jp/search/purpose/ranking/sexy/",
     genres: [
       { key: "", label: "종합" },
