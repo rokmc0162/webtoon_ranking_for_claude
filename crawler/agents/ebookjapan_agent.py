@@ -60,14 +60,24 @@ class EbookjapanAgent(CrawlerAgent):
                 except Exception:
                     pass
 
-                # DOM 기반 파싱 (썸네일 포함)
-                rankings = await self._parse_dom_rankings(page, genre_key)
+                # 스크롤 다운으로 lazy loading 트리거
+                for _ in range(8):
+                    await page.evaluate('window.scrollBy(0, 800)')
+                    await page.wait_for_timeout(500)
 
-                # 폴백: 텍스트 기반
-                if len(rankings) < 3:
-                    self.logger.info("   DOM 파싱 부족, 텍스트 폴백...")
-                    body_text = await page.inner_text('body')
-                    rankings = self._parse_text_rankings(body_text, genre_key)
+                # 하이브리드: 텍스트 파싱 (타이틀) + DOM (썸네일 URL) 병합
+                body_text = await page.inner_text('body')
+                rankings = self._parse_text_rankings(body_text, genre_key)
+
+                # DOM에서 썸네일 URL 매핑
+                thumb_items = await self._parse_dom_rankings(page, genre_key)
+                for i, r in enumerate(rankings):
+                    if i < len(thumb_items) and thumb_items[i].get('thumbnail_url'):
+                        r['thumbnail_url'] = thumb_items[i]['thumbnail_url']
+                        if thumb_items[i].get('url'):
+                            r['url'] = thumb_items[i]['url']
+
+                self.logger.info(f"   텍스트: {len(rankings)}개, DOM 썸네일: {len(thumb_items)}개")
 
                 self.genre_results[genre_key] = rankings
                 self.logger.info(f"   ✅ [{label}]: {len(rankings)}개 작품")
@@ -84,40 +94,39 @@ class EbookjapanAgent(CrawlerAgent):
         """DOM에서 랭킹 아이템 + 썸네일 추출"""
         items = await page.evaluate("""() => {
             const results = [];
-            // ebookjapan: ul.contents-ranking__list > li.contents-list__item
-            // 각 li 안에 img.cover-main__img (썸네일)
-            const listItems = document.querySelectorAll('ul.contents-ranking__list li.contents-list__item, li.contents-list__item');
+            // ebookjapan: img.cover-main__img (lazy-img 포함)
+            // src가 cache2-ebookjapan 도메인이면 실제 썸네일, loading-book-cover.svg면 미로딩
+            const imgs = document.querySelectorAll('img.cover-main__img');
             let rank = 0;
+            const seenTitles = new Set();
 
-            for (const li of listItems) {
-                const img = li.querySelector('img.cover-main__img');
-                if (!img) continue;
-
+            for (const img of imgs) {
                 const src = img.getAttribute('src') || '';
-                if (!src || src.includes('ranking-label')) continue;
+                // 실제 썸네일 URL만 (lazy loading placeholder 스킵)
+                if (!src.startsWith('http') || src.includes('loading-book-cover')) continue;
 
-                // 타이틀: img의 alt 또는 링크 텍스트
-                const alt = img.getAttribute('alt') || '';
-                const linkEl = li.querySelector('a.book-item');
-                let title = alt;
-                if (!title || title.length < 2) {
-                    // 링크 내 텍스트
-                    const spans = li.querySelectorAll('span, p');
-                    for (const s of spans) {
-                        const t = s.textContent.trim();
-                        if (t.length >= 2 && t.length <= 100) {
-                            title = t;
-                            break;
-                        }
-                    }
-                }
+                // 타이틀: alt에서 권수 제거
+                let alt = img.getAttribute('alt') || '';
+                if (!alt || alt.length < 2) continue;
+
+                // 권수 패턴 제거: "タイトル　１１" → "タイトル"
+                // 패턴: 전각숫자, 반각숫자 + 巻, 반각숫자만
+                let title = alt
+                    .replace(/[\\s　]+[０-９]+$/, '')           // 전각 숫자
+                    .replace(/[\\s　]+\\d+巻?$/, '')             // N巻 or N
+                    .replace(/[\\s　]*[:：][\\s　]*\\d+$/, '')    // ： N
+                    .trim();
                 if (!title || title.length < 2) continue;
 
-                // URL
+                // 중복 제거
+                if (seenTitles.has(title)) continue;
+                seenTitles.add(title);
+
+                // 가장 가까운 a 태그에서 URL 추출
+                const container = img.closest('li') || img.closest('div') || img.parentElement;
+                const linkEl = container ? container.querySelector('a[href*="/books/"]') || container.querySelector('a') : null;
                 const href = linkEl ? linkEl.getAttribute('href') : '';
                 const fullUrl = href ? (href.startsWith('http') ? href : 'https://ebookjapan.yahoo.co.jp' + href) : '';
-
-                const thumbUrl = src.startsWith('http') ? src : (src.startsWith('//') ? 'https:' + src : '');
 
                 rank++;
                 if (rank <= 100) {
@@ -125,7 +134,7 @@ class EbookjapanAgent(CrawlerAgent):
                         rank: rank,
                         title: title,
                         url: fullUrl,
-                        thumbnail_url: thumbUrl,
+                        thumbnail_url: src,
                     });
                 }
             }
