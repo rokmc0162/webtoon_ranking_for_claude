@@ -20,13 +20,13 @@ class BookliveAgent(CrawlerAgent):
 
     GENRE_RANKINGS = {
         '': {'name': '종합', 'path': '/ranking/day'},
-        '少年マンガ': {'name': '소년만화', 'path': '/ranking/day/10001'},
-        '青年マンガ': {'name': '청년만화', 'path': '/ranking/day/10003'},
-        '少女マンガ': {'name': '소녀만화', 'path': '/ranking/day/10002'},
-        '女性マンガ': {'name': '여성만화', 'path': '/ranking/day/10004'},
-        'BL': {'name': 'BL', 'path': '/ranking/day/10005'},
-        'TL': {'name': 'TL', 'path': '/ranking/day/10006'},
-        'ラノベ': {'name': '라노벨', 'path': '/ranking/day/10009'},
+        '少年マンガ': {'name': '소년만화', 'path': '/ranking/day/category_id/C/genre_id/6'},
+        '青年マンガ': {'name': '청년만화', 'path': '/ranking/day/category_id/C/genre_id/5'},
+        '少女マンガ': {'name': '소녀만화', 'path': '/ranking/day/category_id/CF/genre_id/1'},
+        '女性マンガ': {'name': '여성만화', 'path': '/ranking/day/category_id/CF/genre_id/2'},
+        'BL': {'name': 'BL', 'path': '/ranking/day/category_id/BL/genre_id/3'},
+        'TL': {'name': 'TL', 'path': '/ranking/day/category_id/TL/genre_id/7'},
+        'ラノベ': {'name': '라노벨', 'path': '/ranking/day/category_id/L/genre_id/14'},
     }
 
     def __init__(self):
@@ -48,25 +48,29 @@ class BookliveAgent(CrawlerAgent):
                 path = genre_info['path']
                 url = f'https://booklive.jp{path}'
 
-                self.logger.info(f"📱 북라이브 [{label}] 크롤링 중... → {url}")
+                try:
+                    self.logger.info(f"📱 북라이브 [{label}] 크롤링 중... → {url}")
 
-                await page.goto(url, wait_until='domcontentloaded', timeout=20000)
-                await page.wait_for_timeout(3000)
+                    await page.goto(url, wait_until='domcontentloaded', timeout=20000)
+                    await page.wait_for_timeout(3000)
 
-                # DOM 기반 파싱 (썸네일 포함)
-                rankings = await self._parse_dom_rankings(page, genre_key)
+                    # DOM 기반 파싱 (썸네일 포함)
+                    rankings = await self._parse_dom_rankings(page, genre_key)
 
-                # 폴백: 텍스트 기반
-                if len(rankings) < 5:
-                    self.logger.info("   DOM 파싱 부족, 텍스트 폴백...")
-                    body_text = await page.inner_text('body')
-                    rankings = self._parse_text_rankings(body_text, genre_key)
+                    # 폴백: 텍스트 기반
+                    if len(rankings) < 5:
+                        self.logger.info("   DOM 파싱 부족, 텍스트 폴백...")
+                        body_text = await page.inner_text('body')
+                        rankings = self._parse_text_rankings(body_text, genre_key)
 
-                self.genre_results[genre_key] = rankings
-                self.logger.info(f"   ✅ [{label}]: {len(rankings)}개 작품")
+                    self.genre_results[genre_key] = rankings
+                    self.logger.info(f"   ✅ [{label}]: {len(rankings)}개 작품")
 
-                if genre_key == '':
-                    all_rankings = rankings
+                    if genre_key == '':
+                        all_rankings = rankings
+                except Exception as e:
+                    self.logger.warning(f"   ⚠️ [{label}] 크롤링 실패: {e}")
+                    self.genre_results[genre_key] = []
 
             return all_rankings
 
