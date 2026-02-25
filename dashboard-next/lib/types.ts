@@ -9,6 +9,7 @@ export interface Ranking {
   rank_change: number; // 양수=상승, 음수=하락, 999=NEW
   thumbnail_url?: string;
   thumbnail_base64?: string;
+  unified_work_id?: number | null;
 }
 
 export interface PlatformInfo {
@@ -109,6 +110,55 @@ export interface TitleDetailResponse {
   crossPlatform: CrossPlatformEntry[];
   reviewStats: ReviewStats;
   reviews: Review[];
+}
+
+// === 통합 작품 (unified_works) ===
+
+export interface UnifiedWorkMetadata {
+  id: number;
+  title_kr: string;
+  title_canonical: string;
+  author: string;
+  artist: string;
+  publisher: string;
+  genre: string;
+  genre_kr: string;
+  tags: string;
+  description: string;
+  is_riverse: boolean;
+  thumbnail_url: string | null;
+  thumbnail_base64: string | null;
+}
+
+export interface PlatformWorkEntry {
+  platform: string;
+  platform_name: string;
+  platform_color: string;
+  title: string;
+  url: string;
+  best_rank: number | null;
+  latest_rank: number | null;
+  latest_date: string | null;
+  rating: number | null;
+  review_count: number | null;
+  hearts: number | null;
+  favorites: number | null;
+  first_seen_date: string | null;
+  last_seen_date: string | null;
+  rank_history: { date: string; rank: number }[];
+  genre_rank_history: { date: string; rank: number }[];
+  genre_label: string;
+}
+
+export interface ReviewWithPlatform extends Review {
+  platform: string;
+}
+
+export interface UnifiedWorkResponse {
+  metadata: UnifiedWorkMetadata;
+  platforms: PlatformWorkEntry[];
+  reviewStats: ReviewStats;
+  reviews: ReviewWithPlatform[];
 }
 
 // === 외부 데이터 (Phase 2) ===

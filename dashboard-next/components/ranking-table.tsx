@@ -144,7 +144,7 @@ export function RankingTable({
               <td className="py-2 px-2 align-middle overflow-hidden">
                 <div className="truncate">
                   <Link
-                    href={`/title/${platform}/${encodeURIComponent(r.title)}`}
+                    href={r.unified_work_id ? `/work/${r.unified_work_id}` : `/title/${platform}/${encodeURIComponent(r.title)}`}
                     target="_blank"
                     className="font-medium text-foreground hover:underline"
                     style={{ textDecorationColor: platformColor }}
@@ -196,7 +196,7 @@ export function RankingTable({
               {/* 분석 페이지 링크 */}
               <td className="py-2 px-2 text-center align-middle">
                 <Link
-                  href={`/title/${platform}/${encodeURIComponent(r.title)}`}
+                  href={r.unified_work_id ? `/work/${r.unified_work_id}` : `/title/${platform}/${encodeURIComponent(r.title)}`}
                   target="_blank"
                   className="text-xl opacity-60 hover:opacity-100 transition-opacity"
                   title="작품 상세 분석"

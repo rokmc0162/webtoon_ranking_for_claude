@@ -105,10 +105,51 @@ def save_rankings(date: str, platform: str, rankings: List[Dict[str, Any]],
     print(f"💾 {platform}: {saved_count}개 작품 DB 저장")
 
 
+def _upsert_unified_work(cursor, title_kr: str, title: str, author: str = '',
+                          publisher: str = '', genre: str = '', genre_kr: str = '',
+                          tags: str = '', description: str = '',
+                          is_riverse: bool = False, thumbnail_url: str = '',
+                          thumbnail_base64: str = '') -> Optional[int]:
+    """
+    unified_works 테이블 UPSERT 후 id 반환.
+    title_kr이 비어있으면 None 반환.
+    """
+    if not title_kr:
+        return None
+
+    cursor.execute('''
+        INSERT INTO unified_works
+            (title_kr, title_canonical, author, publisher, genre, genre_kr,
+             tags, description, is_riverse, thumbnail_url, thumbnail_base64)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        ON CONFLICT (title_kr) DO UPDATE SET
+            title_canonical = COALESCE(NULLIF(EXCLUDED.title_canonical, ''), unified_works.title_canonical),
+            author = COALESCE(NULLIF(EXCLUDED.author, ''), unified_works.author),
+            publisher = COALESCE(NULLIF(EXCLUDED.publisher, ''), unified_works.publisher),
+            genre = COALESCE(NULLIF(EXCLUDED.genre, ''), unified_works.genre),
+            genre_kr = COALESCE(NULLIF(EXCLUDED.genre_kr, ''), unified_works.genre_kr),
+            tags = CASE WHEN length(EXCLUDED.tags) > length(COALESCE(unified_works.tags, ''))
+                   THEN EXCLUDED.tags ELSE unified_works.tags END,
+            description = CASE WHEN length(EXCLUDED.description) > length(COALESCE(unified_works.description, ''))
+                          THEN EXCLUDED.description ELSE unified_works.description END,
+            is_riverse = EXCLUDED.is_riverse OR unified_works.is_riverse,
+            thumbnail_url = COALESCE(NULLIF(EXCLUDED.thumbnail_url, ''), unified_works.thumbnail_url),
+            thumbnail_base64 = COALESCE(NULLIF(EXCLUDED.thumbnail_base64, ''), unified_works.thumbnail_base64),
+            updated_at = NOW()
+        RETURNING id
+    ''', (
+        title_kr, title, author, publisher, genre, genre_kr,
+        tags, description, is_riverse, thumbnail_url, thumbnail_base64
+    ))
+    row = cursor.fetchone()
+    return row[0] if row else None
+
+
 def save_works_metadata(platform: str, works: List[Dict[str, Any]],
                         date: str = '', sub_category: str = ''):
     """
     작품 메타데이터 저장/갱신 (독립 작품 DB)
+    + unified_works 자동 연결
 
     Args:
         platform: 플랫폼 이름
@@ -138,16 +179,23 @@ def save_works_metadata(platform: str, works: List[Dict[str, Any]],
         genre_kr = translate_genre(genre) if genre else ''
         is_riverse = is_riverse_title(title)
 
+        # unified_works UPSERT → id 획득
+        unified_id = _upsert_unified_work(
+            cursor, title_kr, title,
+            genre=genre, genre_kr=genre_kr,
+            is_riverse=is_riverse, thumbnail_url=thumbnail_url
+        )
+
         # UPSERT: 신규 작품이면 INSERT, 기존이면 갱신
         cursor.execute('''
             INSERT INTO works (platform, title, thumbnail_url, url, genre, genre_kr,
                                title_kr, is_riverse, first_seen_date, last_seen_date,
-                               best_rank, updated_at)
+                               best_rank, unified_work_id, updated_at)
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s,
                     CASE WHEN %s != '' THEN %s::date ELSE NULL END,
                     CASE WHEN %s != '' THEN %s::date ELSE NULL END,
                     CASE WHEN %s = '' AND %s IS NOT NULL THEN %s ELSE NULL END,
-                    NOW())
+                    %s, NOW())
             ON CONFLICT(platform, title)
             DO UPDATE SET
                 thumbnail_url = CASE WHEN EXCLUDED.thumbnail_url != '' THEN EXCLUDED.thumbnail_url
@@ -162,13 +210,15 @@ def save_works_metadata(platform: str, works: List[Dict[str, Any]],
                 best_rank = CASE
                     WHEN EXCLUDED.best_rank IS NOT NULL AND (works.best_rank IS NULL OR EXCLUDED.best_rank < works.best_rank)
                     THEN EXCLUDED.best_rank ELSE works.best_rank END,
+                unified_work_id = COALESCE(EXCLUDED.unified_work_id, works.unified_work_id),
                 updated_at = NOW()
         ''', (
             platform, title, thumbnail_url, url, genre, genre_kr,
             title_kr, is_riverse,
             date, date,   # first_seen_date
             date, date,   # last_seen_date
-            sub_category, rank, rank  # best_rank (only for 종합)
+            sub_category, rank, rank,  # best_rank (only for 종합)
+            unified_id
         ))
         count += 1
 
@@ -263,6 +313,7 @@ def save_work_detail(platform: str, title: str, detail: Dict[str, Any]):
     """
     작품 상세 메타데이터 저장 (상세 페이지에서 수집)
     COALESCE(NULLIF(...), existing) 패턴으로 기존 데이터 보호
+    + unified_works에도 상세 정보 반영
 
     Args:
         platform: 플랫폼 이름
@@ -298,6 +349,18 @@ def save_work_detail(platform: str, title: str, detail: Dict[str, Any]):
         platform, title
     ))
     updated = cursor.rowcount
+
+    # unified_works에도 상세 정보 반영
+    title_kr = get_korean_title(title)
+    if title_kr:
+        _upsert_unified_work(
+            cursor, title_kr, title,
+            author=detail.get('author', ''),
+            publisher=detail.get('publisher', ''),
+            tags=detail.get('tags', ''),
+            description=detail.get('description', ''),
+        )
+
     conn.commit()
     conn.close()
     return updated > 0
