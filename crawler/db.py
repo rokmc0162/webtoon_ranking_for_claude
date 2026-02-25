@@ -59,16 +59,35 @@ def save_rankings(date: str, platform: str, rankings: List[Dict[str, Any]],
     conn = get_db_connection()
     cursor = conn.cursor()
 
+    # Asura: rankings 제목을 works 제목과 정규화 매칭하여 통일
+    # (랭킹 페이지와 시리즈 목록의 제목 표기 차이 해소)
+    title_norm_map = {}  # {normalized: works_title}
+    if platform == 'asura':
+        import re
+        cursor.execute("SELECT title FROM works WHERE platform = 'asura'")
+        for (wt,) in cursor.fetchall():
+            n = re.sub(r'[^a-z0-9]', '', wt.lower())
+            title_norm_map[n] = wt
+
     saved_count = 0
     for item in rankings:
+        title = item['title']
+
+        # Asura: works 제목과 정규화 매칭
+        if platform == 'asura' and title_norm_map:
+            import re
+            tn = re.sub(r'[^a-z0-9]', '', title.lower())
+            if title not in title_norm_map.values() and tn in title_norm_map:
+                title = title_norm_map[tn]
+
         # 제목 매핑
-        title_kr = get_korean_title(item['title'])
+        title_kr = get_korean_title(title)
 
         # 장르 번역
         genre_kr = translate_genre(item.get('genre', ''))
 
         # 리버스 작품 여부
-        is_riverse = is_riverse_title(item['title'])
+        is_riverse = is_riverse_title(title)
 
         try:
             cursor.execute('''
@@ -88,7 +107,7 @@ def save_rankings(date: str, platform: str, rankings: List[Dict[str, Any]],
                 platform,
                 sub_category,
                 item['rank'],
-                item['title'],
+                title,
                 title_kr,
                 item.get('genre', ''),
                 genre_kr,
