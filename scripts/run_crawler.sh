@@ -39,6 +39,12 @@ echo "[$(date '+%Y-%m-%d %H:%M:%S')] 외부 데이터 수집 시작..." >> "${LO
 /usr/bin/python3 crawler/main_external.py --max-works 200 >> "${LOG_FILE}" 2>&1
 echo "[$(date '+%Y-%m-%d %H:%M:%S')] 외부 데이터 수집 완료" >> "${LOG_FILE}"
 
+# 3. Asura Scans 크롤링 (해적판 - 분리 실행, 실패해도 기존 크롤러에 영향 없음)
+echo "[$(date '+%Y-%m-%d %H:%M:%S')] Asura Scans 크롤링 시작..." >> "${LOG_FILE}"
+/usr/bin/python3 crawler/main_asura.py --phase rankings >> "${LOG_FILE}" 2>&1
+/usr/bin/python3 crawler/main_asura.py --phase series >> "${LOG_FILE}" 2>&1
+echo "[$(date '+%Y-%m-%d %H:%M:%S')] Asura Scans 크롤링 완료" >> "${LOG_FILE}"
+
 echo "" >> "${LOG_FILE}"
 
 # 30일 이상 된 로그 파일 삭제
