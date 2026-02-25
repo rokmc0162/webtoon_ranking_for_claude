@@ -1,193 +1,121 @@
-"use client";
-
-import { useState, useEffect, useCallback } from "react";
-import { Header } from "@/components/header";
-import { DateSelector } from "@/components/date-selector";
-import { PlatformTabs } from "@/components/platform-tabs";
-import { GenrePills } from "@/components/genre-pills";
-import { RankingTable } from "@/components/ranking-table";
-import { Checkbox } from "@/components/ui/checkbox";
-import { Separator } from "@/components/ui/separator";
-import { Skeleton } from "@/components/ui/skeleton";
-import { getPlatformById } from "@/lib/constants";
+import { sql } from "@/lib/supabase";
 import type { Ranking, PlatformStats } from "@/lib/types";
+import { DashboardClient } from "@/components/dashboard-client";
 
-export default function Home() {
-  const [dates, setDates] = useState<string[]>([]);
-  const [selectedDate, setSelectedDate] = useState("");
-  const [selectedPlatform, setSelectedPlatform] = useState("piccoma");
-  const [selectedGenre, setSelectedGenre] = useState("");
-  const [rankings, setRankings] = useState<Ranking[]>([]);
-  const [stats, setStats] = useState<Record<string, PlatformStats>>({});
-  const [riverseCounts, setRiverseCounts] = useState<Record<string, number>>({});
-  const [riverseOnly, setRiverseOnly] = useState(false);
-  const [loading, setLoading] = useState(true);
+// 동적 렌더링 강제 (빌드 시 DB 연결 불가)
+export const dynamic = "force-dynamic";
 
-  // 초기 날짜 로드
-  useEffect(() => {
-    fetch("/api/dates")
-      .then((res) => res.json())
-      .then((data: string[]) => {
-        setDates(data);
-        if (data.length > 0) {
-          setSelectedDate(data[0]);
-        }
-      });
-  }, []);
+// 서버 컴포넌트: 초기 데이터를 서버에서 직접 DB 조회 → API 워터폴 제거
+export default async function Home() {
+  const defaultPlatform = "piccoma";
 
-  // 통계 로드
-  useEffect(() => {
-    if (!selectedDate) return;
-    fetch(`/api/stats?date=${selectedDate}`)
-      .then((res) => res.json())
-      .then(setStats);
-  }, [selectedDate]);
+  // 1. 날짜 목록 조회
+  const dateRows = await sql`SELECT DISTINCT date FROM rankings ORDER BY date DESC`;
+  const dates = dateRows.map((r) => r.date);
+  const latestDate = dates[0] || "";
 
-  // 리버스 카운트 로드
-  useEffect(() => {
-    if (!selectedDate || !selectedPlatform) return;
-    fetch(
-      `/api/riverse-counts?date=${selectedDate}&platform=${selectedPlatform}`
-    )
-      .then((res) => res.json())
-      .then(setRiverseCounts);
-  }, [selectedDate, selectedPlatform]);
+  if (!latestDate) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <p className="text-muted-foreground">데이터가 없습니다.</p>
+      </div>
+    );
+  }
 
-  // 랭킹 로드
-  const loadRankings = useCallback(() => {
-    if (!selectedDate || !selectedPlatform) return;
-    setLoading(true);
-    const params = new URLSearchParams({
-      date: selectedDate,
-      platform: selectedPlatform,
-      sub_category: selectedGenre,
-    });
-    fetch(`/api/rankings?${params}`)
-      .then((res) => res.json())
-      .then((data: Ranking[]) => {
-        setRankings(data);
-        setLoading(false);
-      })
-      .catch(() => setLoading(false));
-  }, [selectedDate, selectedPlatform, selectedGenre]);
+  // 2. 최신 날짜 기준: 통계 + 리버스카운트 + 랭킹 + 이전날짜를 한번에 병렬 조회
+  const [statsRows, riverseCountRows, rankingRows, prevDateRows] = await Promise.all([
+    sql`
+      SELECT platform, COUNT(*)::int as total,
+             COUNT(*) FILTER (WHERE is_riverse = TRUE)::int as riverse
+      FROM rankings
+      WHERE date = ${latestDate} AND COALESCE(sub_category, '') = ''
+      GROUP BY platform
+    `,
+    sql`
+      SELECT COALESCE(sub_category, '') as sub_category, COUNT(*)::int as count
+      FROM rankings
+      WHERE date = ${latestDate} AND platform = ${defaultPlatform} AND is_riverse = TRUE
+      GROUP BY COALESCE(sub_category, '')
+    `,
+    sql`
+      SELECT rank, title, title_kr, genre, genre_kr, url, is_riverse
+      FROM rankings
+      WHERE date = ${latestDate} AND platform = ${defaultPlatform} AND COALESCE(sub_category, '') = ''
+      ORDER BY rank
+    `,
+    sql`
+      SELECT DISTINCT date FROM rankings
+      WHERE date < ${latestDate} AND platform = ${defaultPlatform}
+      ORDER BY date DESC LIMIT 1
+    `,
+  ]);
 
-  useEffect(() => {
-    loadRankings();
-  }, [loadRankings]);
+  const stats: Record<string, PlatformStats> = {};
+  for (const r of statsRows) {
+    stats[r.platform] = { total: r.total, riverse: r.riverse };
+  }
 
-  // 플랫폼 변경 시 장르 리셋
-  const handlePlatformChange = (id: string) => {
-    setSelectedPlatform(id);
-    setSelectedGenre("");
-    setRiverseOnly(false);
-  };
+  const riverseCounts: Record<string, number> = {};
+  for (const r of riverseCountRows) {
+    riverseCounts[r.sub_category] = r.count;
+  }
 
-  const platform = getPlatformById(selectedPlatform);
-  const platformColor = platform?.color || "#0D3B70";
+  // 3. 랭킹 변동 + 썸네일을 타이틀 기반으로 병렬 조회
+  const titles = rankingRows.map((r) => r.title);
+  const [prevRankings, thumbRows] = await Promise.all([
+    prevDateRows.length > 0
+      ? sql`
+          SELECT title, rank FROM rankings
+          WHERE date = ${prevDateRows[0].date} AND platform = ${defaultPlatform}
+            AND COALESCE(sub_category, '') = ''
+            AND title = ANY(${titles})
+        `
+      : Promise.resolve([]),
+    titles.length > 0
+      ? sql`
+          SELECT title, thumbnail_url
+          FROM works
+          WHERE platform = ${defaultPlatform}
+            AND title = ANY(${titles})
+            AND thumbnail_url IS NOT NULL
+        `
+      : Promise.resolve([]),
+  ]);
 
-  // 리버스 필터
-  const displayRankings = riverseOnly
-    ? rankings.filter((r) => r.is_riverse)
-    : rankings;
+  const rankChanges: Record<string, number> = {};
+  if (prevRankings.length > 0) {
+    const prevMap: Record<string, number> = {};
+    for (const r of prevRankings) prevMap[r.title] = r.rank;
+    for (const r of rankingRows) {
+      rankChanges[r.title] = r.title in prevMap ? prevMap[r.title] - r.rank : 999;
+    }
+  }
 
-  // 출처 링크
-  const sourceUrl = platform?.sourceUrl || "";
+  const thumbnails: Record<string, string> = {};
+  for (const t of thumbRows) {
+    if (t.thumbnail_url) thumbnails[t.title] = t.thumbnail_url;
+  }
+
+  const rankings: Ranking[] = rankingRows.map((r) => ({
+    rank: r.rank,
+    title: r.title,
+    title_kr: r.title_kr || null,
+    genre: r.genre || null,
+    genre_kr: r.genre_kr || null,
+    url: r.url,
+    is_riverse: r.is_riverse,
+    rank_change: rankChanges[r.title] ?? 0,
+    thumbnail_url: thumbnails[r.title] || undefined,
+  }));
 
   return (
-    <div className="min-h-screen bg-background">
-      <div className="max-w-[1200px] mx-auto px-3 sm:px-6">
-        <Header />
-
-        {/* 날짜 + 출처 */}
-        <div className="flex items-center justify-between mt-4 mb-3">
-          <DateSelector
-            dates={dates}
-            selected={selectedDate}
-            onSelect={setSelectedDate}
-          />
-          {sourceUrl && (
-            <a
-              href={sourceUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-xs text-muted-foreground hover:text-foreground transition-colors"
-            >
-              📎 데이터 출처: {platform?.name}
-            </a>
-          )}
-        </div>
-
-        {/* 플랫폼 탭 */}
-        <PlatformTabs
-          selected={selectedPlatform}
-          onSelect={handlePlatformChange}
-          stats={stats}
-        />
-
-        {/* 장르 필터 */}
-        {platform && platform.genres.length > 1 && (
-          <div className="mt-3">
-            <GenrePills
-              genres={platform.genres}
-              selected={selectedGenre}
-              onSelect={setSelectedGenre}
-              platformColor={platformColor}
-              riverseCounts={riverseCounts}
-            />
-          </div>
-        )}
-
-        {/* 필터 바 */}
-        <div className="flex items-center justify-between mt-4 mb-2">
-          <div className="text-sm font-medium text-foreground">
-            <span className="font-bold" style={{ color: platformColor }}>
-              {platform?.name}
-            </span>
-            {selectedGenre && platform && (
-              <span className="text-muted-foreground ml-1">
-                [{platform.genres.find((g) => g.key === selectedGenre)?.label}]
-              </span>
-            )}
-            <span className="text-muted-foreground ml-2">
-              TOP {displayRankings.length} — {selectedDate}
-            </span>
-          </div>
-          <div className="flex items-center gap-2">
-            <Checkbox
-              id="riverse-filter"
-              checked={riverseOnly}
-              onCheckedChange={(v) => setRiverseOnly(v === true)}
-            />
-            <label
-              htmlFor="riverse-filter"
-              className="text-sm text-muted-foreground cursor-pointer select-none"
-            >
-              리버스 작품만
-            </label>
-          </div>
-        </div>
-
-        {/* 랭킹 테이블 */}
-        {loading ? (
-          <div className="space-y-3 mt-4">
-            {Array.from({ length: 10 }).map((_, i) => (
-              <Skeleton key={i} className="h-[72px] w-full rounded-lg" />
-            ))}
-          </div>
-        ) : (
-          <RankingTable
-            rankings={displayRankings}
-            platformColor={platformColor}
-            platform={selectedPlatform}
-          />
-        )}
-
-        {/* 푸터 */}
-        <Separator className="mt-8" />
-        <footer className="py-4 text-center text-xs text-muted-foreground">
-          RIVERSE Inc. | 데이터: Supabase PostgreSQL | 매일 자동 수집
-        </footer>
-      </div>
-    </div>
+    <DashboardClient
+      initialDates={dates}
+      initialDate={latestDate}
+      initialStats={stats}
+      initialRiverseCounts={riverseCounts}
+      initialRankings={rankings}
+      initialPlatform={defaultPlatform}
+    />
   );
 }

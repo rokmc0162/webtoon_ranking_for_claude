@@ -1,150 +1,207 @@
-"use client";
+import { sql } from "@/lib/supabase";
+import { PLATFORMS } from "@/lib/constants";
+import { notFound } from "next/navigation";
+import { TitleDetailClient } from "@/components/title/title-detail-client";
 
-import { useEffect, useState } from "react";
-import { useParams, useRouter } from "next/navigation";
-import { TitleHero } from "@/components/title/title-hero";
-import dynamic from "next/dynamic";
-const RankHistoryChart = dynamic(
-  () => import("@/components/title/rank-history-chart").then((m) => m.RankHistoryChart),
-  { ssr: false, loading: () => <div className="h-64 bg-muted animate-pulse rounded-lg" /> }
-);
-import { PlatformMetrics } from "@/components/title/platform-metrics";
-import { CrossPlatformTable } from "@/components/title/cross-platform-table";
-import { ReviewSection } from "@/components/title/review-section";
-import { AiAnalysis } from "@/components/title/ai-analysis";
-import { ExternalData } from "@/components/title/external-data";
-import { Skeleton } from "@/components/ui/skeleton";
-import { Separator } from "@/components/ui/separator";
-import { getPlatformById } from "@/lib/constants";
-import type { TitleDetailResponse } from "@/lib/types";
+// 동적 렌더링 강제
+export const dynamic = "force-dynamic";
 
-export default function TitleDetailPage() {
-  const params = useParams();
-  const router = useRouter();
-  const platform = params.platform as string;
-  const encodedTitle = params.encodedTitle as string;
+interface PageProps {
+  params: Promise<{ platform: string; encodedTitle: string }>;
+}
+
+// 서버 컴포넌트: API 호출 대신 직접 DB 조회 → cold start 워터폴 제거
+export default async function TitleDetailPage({ params }: PageProps) {
+  const { platform, encodedTitle } = await params;
   const title = decodeURIComponent(encodedTitle);
 
-  const [data, setData] = useState<TitleDetailResponse | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
+  // 1단계: 메타데이터 + 랭킹히스토리 + 장르 + 리뷰(초기 50건) + 전체 리뷰 수를 병렬 조회
+  const [metaRows, overallRows, genreRows, reviewRows, reviewCountRows] = await Promise.all([
+    sql`
+      SELECT platform, title, title_kr, genre, genre_kr, is_riverse, url,
+             thumbnail_url, thumbnail_base64,
+             author, publisher, label, tags, description,
+             hearts, favorites, rating, review_count,
+             best_rank, first_seen_date, last_seen_date
+      FROM works
+      WHERE platform = ${platform} AND title = ${title}
+      LIMIT 1
+    `,
+    sql`
+      SELECT date, rank::int as rank
+      FROM rankings
+      WHERE title = ${title} AND platform = ${platform}
+        AND COALESCE(sub_category, '') = ''
+      ORDER BY date DESC
+      LIMIT 90
+    `,
+    sql`
+      SELECT sub_category, COUNT(*)::int as cnt
+      FROM rankings
+      WHERE title = ${title} AND platform = ${platform}
+        AND sub_category IS NOT NULL AND sub_category != ''
+      GROUP BY sub_category
+      ORDER BY cnt DESC
+      LIMIT 1
+    `,
+    sql`
+      SELECT reviewer_name, reviewer_info, body, rating,
+             likes_count, is_spoiler, reviewed_at
+      FROM reviews
+      WHERE platform = ${platform} AND work_title = ${title}
+      ORDER BY reviewed_at DESC NULLS LAST, collected_at DESC
+      LIMIT 50
+    `,
+    sql`
+      SELECT COUNT(*)::int as total
+      FROM reviews
+      WHERE platform = ${platform} AND work_title = ${title}
+    `,
+  ]);
 
-  const platformInfo = getPlatformById(platform);
-  const platformColor = platformInfo?.color || "#0D3B70";
-  const platformName = platformInfo?.name || platform;
+  if (metaRows.length === 0) {
+    notFound();
+  }
 
-  useEffect(() => {
-    if (!platform || !title) return;
-    setLoading(true);
-    setError("");
+  const w = metaRows[0];
+  const metadata = {
+    platform: w.platform,
+    title: w.title,
+    title_kr: w.title_kr || "",
+    genre: w.genre || "",
+    genre_kr: w.genre_kr || "",
+    is_riverse: w.is_riverse ?? false,
+    url: w.url || "",
+    thumbnail_url: w.thumbnail_url || null,
+    thumbnail_base64: w.thumbnail_base64 || null,
+    author: w.author || "",
+    publisher: w.publisher || "",
+    label: w.label || "",
+    tags: w.tags || "",
+    description: w.description || "",
+    hearts: w.hearts ?? null,
+    favorites: w.favorites ?? null,
+    rating: w.rating ? Number(w.rating) : null,
+    review_count: w.review_count ?? null,
+    best_rank: w.best_rank ?? null,
+    first_seen_date: w.first_seen_date || null,
+    last_seen_date: w.last_seen_date || null,
+  };
 
-    fetch(
-      `/api/title-detail?platform=${encodeURIComponent(platform)}&title=${encodeURIComponent(title)}`
-    )
-      .then((res) => {
-        if (!res.ok) throw new Error("not found");
-        return res.json();
-      })
-      .then((d: TitleDetailResponse) => {
-        setData(d);
-        setLoading(false);
-      })
-      .catch(() => {
-        setError("작품 정보를 불러올 수 없습니다.");
-        setLoading(false);
-      });
-  }, [platform, title]);
+  const genre = genreRows.length > 0 ? genreRows[0].sub_category : "";
 
-  return (
-    <div className="min-h-screen bg-background">
-      <div className="max-w-[900px] mx-auto px-3 sm:px-6 py-4">
-        {/* 헤더 */}
-        <div className="flex items-center gap-3 mb-4">
-          <button
-            onClick={() => router.back()}
-            className="text-sm text-muted-foreground hover:text-foreground transition-colors cursor-pointer flex items-center gap-1"
-          >
-            ← 뒤로
-          </button>
-          <Separator orientation="vertical" className="h-4" />
-          <span className="text-xs text-muted-foreground">
-            작품 상세 분석
-          </span>
-        </div>
+  // 2단계: 장르순위 + 크로스플랫폼을 병렬 조회
+  const titleKr = metadata.title_kr;
+  const [genreRankRows, crossPlatformRows] = await Promise.all([
+    genre
+      ? sql`
+          SELECT date, rank::int as rank
+          FROM rankings
+          WHERE title = ${title} AND platform = ${platform}
+            AND sub_category = ${genre}
+          ORDER BY date DESC
+          LIMIT 90
+        `
+      : Promise.resolve([]),
+    titleKr
+      ? sql`
+          SELECT w.platform, w.title, w.best_rank, w.rating, w.review_count, w.last_seen_date
+          FROM works w
+          WHERE w.platform != ${platform}
+            AND (w.title = ${title} OR (w.title_kr = ${titleKr} AND w.title_kr != ''))
+          ORDER BY w.platform
+        `
+      : sql`
+          SELECT w.platform, w.title, w.best_rank, w.rating, w.review_count, w.last_seen_date
+          FROM works w
+          WHERE w.platform != ${platform} AND w.title = ${title}
+          ORDER BY w.platform
+        `,
+  ]);
 
-        {loading ? (
-          <div className="space-y-4">
-            <Skeleton className="h-[180px] w-full rounded-xl" />
-            <Skeleton className="h-[400px] w-full rounded-xl" />
-            <Skeleton className="h-[200px] w-full rounded-xl" />
-          </div>
-        ) : error ? (
-          <div className="text-center py-20 text-muted-foreground">
-            <p className="text-lg mb-2">{error}</p>
-            <button
-              onClick={() => router.back()}
-              className="text-sm text-blue-500 hover:underline cursor-pointer"
-            >
-              랭킹으로 돌아가기
-            </button>
-          </div>
-        ) : data ? (
-          <div className="space-y-4">
-            {/* 1. 히어로 섹션 */}
-            <TitleHero
-              metadata={data.metadata}
-              platformColor={platformColor}
-              platformName={platformName}
-            />
+  // 장르 히스토리 구성
+  const genreRankMap: Record<string, number> = {};
+  for (const r of genreRankRows) {
+    genreRankMap[r.date] = r.rank;
+  }
 
-            {/* 2. 랭킹 추이 차트 */}
-            <RankHistoryChart
-              data={data.rankHistory}
-              platform={platform}
-              platformColor={platformColor}
-            />
+  const allDates = new Set<string>();
+  for (const r of overallRows) allDates.add(r.date);
+  for (const d of Object.keys(genreRankMap)) allDates.add(d);
 
-            {/* 3. 플랫폼 지표 */}
-            <PlatformMetrics
-              metadata={data.metadata}
-              reviewStats={data.reviewStats}
-              platformColor={platformColor}
-            />
+  const overallMap: Record<string, number> = {};
+  for (const r of overallRows) overallMap[r.date] = r.rank;
 
-            {/* 4. AI 작품 분석 */}
-            <AiAnalysis
-              platform={platform}
-              title={title}
-              platformColor={platformColor}
-            />
+  const history = Array.from(allDates)
+    .sort()
+    .map((date) => ({
+      date,
+      rank: overallMap[date] ?? null,
+      genre_rank: genreRankMap[date] ?? null,
+    }));
 
-            {/* 5. 크로스 플랫폼 비교 */}
-            <CrossPlatformTable
-              entries={data.crossPlatform}
-              currentPlatform={platform}
-            />
-
-            {/* 6. 리뷰 섹션 */}
-            <ReviewSection
-              reviews={data.reviews}
-              platform={platform}
-              platformColor={platformColor}
-            />
-
-            {/* 7. 외부 평가 데이터 */}
-            <ExternalData
-              title={title}
-              platformColor={platformColor}
-            />
-          </div>
-        ) : null}
-
-        {/* 푸터 */}
-        <Separator className="mt-8" />
-        <footer className="py-4 text-center text-xs text-muted-foreground">
-          RIVERSE Inc. | 작품 상세 분석
-        </footer>
-      </div>
-    </div>
+  // 크로스플랫폼 최신 순위
+  const crossPlatform = await Promise.all(
+    crossPlatformRows.map(async (cp) => {
+      const latestRankRows = await sql`
+        SELECT rank::int as rank, date
+        FROM rankings
+        WHERE title = ${cp.title} AND platform = ${cp.platform}
+          AND COALESCE(sub_category, '') = ''
+        ORDER BY date DESC
+        LIMIT 1
+      `;
+      const cpPlatform = PLATFORMS.find((p) => p.id === cp.platform);
+      return {
+        platform: cp.platform,
+        platform_name: cpPlatform?.name || cp.platform,
+        best_rank: cp.best_rank ?? null,
+        latest_rank: latestRankRows.length > 0 ? latestRankRows[0].rank : null,
+        latest_date: latestRankRows.length > 0 ? latestRankRows[0].date : null,
+        rating: cp.rating ? Number(cp.rating) : null,
+        review_count: cp.review_count ?? null,
+      };
+    })
   );
+
+  // 리뷰 처리
+  const reviews = reviewRows.map((r) => ({
+    reviewer_name: r.reviewer_name || "",
+    reviewer_info: r.reviewer_info || "",
+    body: r.body || "",
+    rating: r.rating ?? null,
+    likes_count: r.likes_count ?? 0,
+    is_spoiler: r.is_spoiler ?? false,
+    reviewed_at: r.reviewed_at
+      ? new Date(r.reviewed_at).toISOString().split("T")[0]
+      : null,
+  }));
+
+  const totalReviews = reviewCountRows[0]?.total || 0;
+
+  const ratingsWithValues = reviews
+    .map((r) => r.rating)
+    .filter((r): r is number => r !== null);
+  const ratingDistribution: Record<number, number> = {};
+  for (const r of ratingsWithValues) {
+    ratingDistribution[r] = (ratingDistribution[r] || 0) + 1;
+  }
+  const avgRating =
+    ratingsWithValues.length > 0
+      ? ratingsWithValues.reduce((a, b) => a + b, 0) / ratingsWithValues.length
+      : null;
+
+  const data = {
+    metadata,
+    rankHistory: { overall: history, genre },
+    crossPlatform,
+    reviewStats: {
+      total: totalReviews,
+      avg_rating: avgRating ? Math.round(avgRating * 10) / 10 : null,
+      rating_distribution: ratingDistribution,
+    },
+    reviews,
+  };
+
+  return <TitleDetailClient data={data} />;
 }

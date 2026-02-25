@@ -1,10 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { sql } from "@/lib/supabase";
 
+// 리뷰 페이지네이션 API: offset/limit 기반 더보기 지원
 export async function GET(request: NextRequest) {
   const { searchParams } = request.nextUrl;
   const platform = searchParams.get("platform") || "";
   const title = searchParams.get("title") || "";
+  const offset = parseInt(searchParams.get("offset") || "0", 10);
+  const limit = parseInt(searchParams.get("limit") || "50", 10);
 
   if (!platform || !title) {
     return NextResponse.json(
@@ -13,50 +16,26 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  // 작품 메타데이터
-  const metaRows = await sql`
-    SELECT author, publisher, label, tags, description,
-           hearts, favorites, rating, review_count
-    FROM works
-    WHERE platform = ${platform} AND title = ${title}
-    LIMIT 1
-  `;
+  const safeLimit = Math.min(limit, 200);
 
-  const metadata = metaRows.length > 0
-    ? {
-        author: metaRows[0].author || "",
-        publisher: metaRows[0].publisher || "",
-        label: metaRows[0].label || "",
-        tags: metaRows[0].tags || "",
-        description: metaRows[0].description || "",
-        hearts: metaRows[0].hearts ?? null,
-        favorites: metaRows[0].favorites ?? null,
-        rating: metaRows[0].rating ? Number(metaRows[0].rating) : null,
-        review_count: metaRows[0].review_count ?? null,
-      }
-    : {
-        author: "",
-        publisher: "",
-        label: "",
-        tags: "",
-        description: "",
-        hearts: null,
-        favorites: null,
-        rating: null,
-        review_count: null,
-      };
+  const [rows, countRows] = await Promise.all([
+    sql`
+      SELECT reviewer_name, reviewer_info, body, rating,
+             likes_count, is_spoiler, reviewed_at
+      FROM reviews
+      WHERE platform = ${platform} AND work_title = ${title}
+      ORDER BY reviewed_at DESC NULLS LAST, collected_at DESC
+      OFFSET ${offset}
+      LIMIT ${safeLimit}
+    `,
+    sql`
+      SELECT COUNT(*)::int as total
+      FROM reviews
+      WHERE platform = ${platform} AND work_title = ${title}
+    `,
+  ]);
 
-  // 리뷰 목록 (최신순, 전체)
-  const reviewRows = await sql`
-    SELECT reviewer_name, reviewer_info, body, rating,
-           likes_count, is_spoiler, reviewed_at
-    FROM reviews
-    WHERE platform = ${platform} AND work_title = ${title}
-    ORDER BY reviewed_at DESC NULLS LAST, collected_at DESC
-    LIMIT 500
-  `;
-
-  const reviews = reviewRows.map((r) => ({
+  const reviews = rows.map((r) => ({
     reviewer_name: r.reviewer_name || "",
     reviewer_info: r.reviewer_info || "",
     body: r.body || "",
@@ -68,5 +47,18 @@ export async function GET(request: NextRequest) {
       : null,
   }));
 
-  return NextResponse.json({ metadata, reviews });
+  return NextResponse.json(
+    {
+      reviews,
+      total: countRows[0]?.total || 0,
+      offset,
+      limit: safeLimit,
+      hasMore: offset + safeLimit < (countRows[0]?.total || 0),
+    },
+    {
+      headers: {
+        "Cache-Control": "public, s-maxage=300, stale-while-revalidate=600",
+      },
+    }
+  );
 }
