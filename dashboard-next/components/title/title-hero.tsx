@@ -28,20 +28,19 @@ interface TitleHeroProps {
 }
 
 export function TitleHero({ metadata, platformColor, platformName }: TitleHeroProps) {
-  const [loadState, setLoadState] = useState<"base64" | "cdn" | "proxy" | "fallback">(
-    metadata.thumbnail_base64 ? "base64" : metadata.thumbnail_url ? "cdn" : "fallback"
+  // 항상 프록시를 우선 사용 (외부 CDN CORS/referrer 문제 방지)
+  const proxyUrl = `/api/thumbnail?platform=${encodeURIComponent(metadata.platform)}&title=${encodeURIComponent(metadata.title)}`;
+  const hasThumbnail = !!(metadata.thumbnail_base64 || metadata.thumbnail_url);
+  const [loadState, setLoadState] = useState<"proxy" | "cdn" | "fallback">(
+    hasThumbnail ? "proxy" : "fallback"
   );
   const [descExpanded, setDescExpanded] = useState(false);
 
-  const proxyUrl = `/api/thumbnail?platform=${encodeURIComponent(metadata.platform)}&title=${encodeURIComponent(metadata.title)}`;
-
   let thumbnailSrc: string | null = null;
-  if (loadState === "base64" && metadata.thumbnail_base64) {
-    thumbnailSrc = `data:image/jpeg;base64,${metadata.thumbnail_base64}`;
+  if (loadState === "proxy") {
+    thumbnailSrc = proxyUrl;
   } else if (loadState === "cdn" && metadata.thumbnail_url) {
     thumbnailSrc = metadata.thumbnail_url;
-  } else if (loadState === "proxy") {
-    thumbnailSrc = proxyUrl;
   }
 
   const tags = metadata.tags ? parseTags(metadata.tags) : [];
@@ -67,8 +66,7 @@ export function TitleHero({ metadata, platformColor, platformName }: TitleHeroPr
               style={{ width: 100, height: 140, objectFit: "cover" }}
               referrerPolicy="no-referrer"
               onError={() => {
-                if (loadState === "base64") setLoadState("cdn");
-                else if (loadState === "cdn") setLoadState("proxy");
+                if (loadState === "proxy") setLoadState("cdn");
                 else setLoadState("fallback");
               }}
             />
