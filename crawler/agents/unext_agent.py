@@ -27,28 +27,99 @@ class UnextAgent(CrawlerAgent):
         self.genre_results = {}
 
     async def crawl(self, browser: Browser) -> List[Dict[str, Any]]:
-        """U-NEXT 만화 랭킹 크롤링"""
-        page = await browser.new_page()
+        """U-NEXT 만화 랭킹 크롤링 - GraphQL route intercept로 5페이지 수집"""
+        import json
+        import urllib.parse
+
+        context = browser.contexts[0] if browser.contexts else await browser.new_context()
+        page = await context.new_page()
 
         try:
             self.logger.info(f"📱 U-NEXT [만화] 크롤링 중... → {self.url}")
 
-            await page.goto(self.url, wait_until='domcontentloaded', timeout=20000)
-            await page.wait_for_timeout(5000)
+            all_books = []
+            current_page_target = [1]  # mutable for closure
 
-            # 스크롤 다운으로 lazy loading 트리거 (더 많은 아이템)
-            for _ in range(15):
-                await page.evaluate('window.scrollBy(0, 800)')
-                await page.wait_for_timeout(500)
+            # GraphQL 응답 캡처
+            async def on_response(response):
+                if 'cosmo_getBookRanking' in response.url:
+                    try:
+                        body = await response.json()
+                        books = body.get('data', {}).get('bookRanking', {}).get('books', [])
+                        for book in books:
+                            s = book.get('bookSakuhin', {})
+                            if not s or not s.get('name'):
+                                continue
+                            # 썸네일: book.thumbnail.standard
+                            thumb = s.get('book', {}).get('thumbnail', {}).get('standard', '')
+                            if thumb and not thumb.startswith('http'):
+                                thumb = 'https://' + thumb
+                            all_books.append({
+                                'name': s.get('name', ''),
+                                'code': s.get('sakuhinCode', ''),
+                                'thumb': thumb,
+                            })
+                    except Exception:
+                        pass
 
-            # DOM 기반 파싱 (썸네일 포함)
-            rankings = await self._parse_dom_rankings(page)
+            page.on('response', on_response)
 
-            # 폴백: 텍스트 기반
+            # Route intercept: page 파라미터를 현재 타겟으로 변경
+            async def modify_request(route):
+                url = route.request.url
+                if 'cosmo_getBookRanking' in url and current_page_target[0] > 1:
+                    parsed = urllib.parse.urlparse(url)
+                    params = urllib.parse.parse_qs(parsed.query)
+                    if 'variables' in params:
+                        variables = json.loads(params['variables'][0])
+                        variables['page'] = current_page_target[0]
+                        params['variables'] = [json.dumps(variables)]
+                        new_query = urllib.parse.urlencode({k: v[0] for k, v in params.items()})
+                        new_url = f'{parsed.scheme}://{parsed.netloc}{parsed.path}?{new_query}'
+                        await route.continue_(url=new_url)
+                        return
+                await route.continue_()
+
+            await page.route('**/cc.unext.jp/**', modify_request)
+
+            # 페이지 1: 일반 로드
+            await page.goto(self.url, wait_until='domcontentloaded', timeout=30000)
+            await page.wait_for_timeout(8000)
+            self.logger.info(f"   Page 1: {len(all_books)}개 수집")
+
+            # 페이지 2-5: 페이지 재로드 + route intercept
+            for pg in range(2, 6):
+                current_page_target[0] = pg
+                await page.goto(self.url, wait_until='domcontentloaded', timeout=30000)
+                await page.wait_for_timeout(5000)
+                self.logger.info(f"   Page {pg}: {len(all_books)}개 누적")
+
+            # 중복 제거 및 랭킹 구성
+            seen = set()
+            rankings = []
+            for book in all_books:
+                if book['name'] and book['name'] not in seen:
+                    seen.add(book['name'])
+                    rankings.append({
+                        'rank': len(rankings) + 1,
+                        'title': book['name'],
+                        'genre': '',
+                        'url': f"https://video.unext.jp/book/title/{book['code']}" if book['code'] else '',
+                        'thumbnail_url': book.get('thumb', ''),
+                    })
+                    if len(rankings) >= 100:
+                        break
+
+            # route 해제
+            await page.unroute('**/cc.unext.jp/**')
+
+            # 폴백: GraphQL 실패 시 DOM 방식
             if len(rankings) < 5:
-                self.logger.info("   DOM 파싱 부족, 텍스트 폴백...")
-                body_text = await page.inner_text('body')
-                rankings = self._parse_text_rankings(body_text)
+                self.logger.info(f"   GraphQL 부족({len(rankings)}개), DOM 폴백...")
+                for _ in range(15):
+                    await page.evaluate('window.scrollBy(0, 800)')
+                    await page.wait_for_timeout(500)
+                rankings = await self._parse_dom_rankings(page)
 
             self.genre_results[''] = rankings
             self.logger.info(f"   ✅ [만화]: {len(rankings)}개 작품")

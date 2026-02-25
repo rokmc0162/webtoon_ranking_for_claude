@@ -61,6 +61,28 @@ class ComicoAgent(CrawlerAgent):
                 await page.goto(url, wait_until='domcontentloaded', timeout=20000)
                 await page.wait_for_timeout(5000)
 
+                # Infinite Scroll로 100위까지 로드 (20개씩 로드됨)
+                prev_count = 0
+                for scroll_attempt in range(10):
+                    await page.evaluate('window.scrollTo(0, document.body.scrollHeight)')
+                    await page.wait_for_timeout(2000)
+                    curr_count = await page.evaluate("""() => {
+                        let count = 0;
+                        const listItems = document.querySelectorAll('li');
+                        for (const li of listItems) {
+                            const img = li.querySelector('div.thumbnail img, figure img');
+                            if (img) {
+                                const src = img.getAttribute('src') || '';
+                                if (src.includes('comico')) count++;
+                            }
+                        }
+                        return count;
+                    }""")
+                    self.logger.info(f"   스크롤 {scroll_attempt+1}: {curr_count}개 로드됨")
+                    if curr_count >= 100 or curr_count == prev_count:
+                        break
+                    prev_count = curr_count
+
                 # DOM 기반 파싱 (썸네일 포함)
                 rankings = await self._parse_dom_rankings(page, genre_key)
 
@@ -79,22 +101,26 @@ class ComicoAgent(CrawlerAgent):
         """DOM에서 랭킹 아이템 + 썸네일 추출"""
         items = await page.evaluate("""() => {
             const results = [];
-            // comico: li 안에 a > div.thumbnail > figure > img 구조
+            // comico: li > a > div.thumbnail > figure > img
+            // 타이틀은 img alt가 가장 정확 (caption은 순위+타이틀+작가 혼합)
             const listItems = document.querySelectorAll('li');
             let rank = 0;
 
             for (const li of listItems) {
                 const img = li.querySelector('div.thumbnail img, figure img');
-                const captionEl = li.querySelector('div.caption, div.title, a');
-                if (!img || !captionEl) continue;
+                if (!img) continue;
 
-                const src = img.getAttribute('src') || '';
-                const alt = img.getAttribute('alt') || '';
-                // comico 이미지는 images.comico.io 도메인
+                const src = img.getAttribute('src') || img.getAttribute('srcset') || '';
                 if (!src.includes('comico')) continue;
+                // srcset에서 첫 URL만 추출
+                const thumbUrl = src.split(',')[0].split(' ')[0].trim();
 
-                const titleEl = li.querySelector('div.caption h2, div.caption p, div.title');
-                const title = titleEl ? titleEl.textContent.trim() : alt;
+                // 타이틀: img alt (가장 정확)
+                const alt = (img.getAttribute('alt') || '').trim();
+                // 폴백: [class*="name"] 텍스트
+                const nameEl = li.querySelector('[class*="name"]');
+                const nameText = nameEl ? nameEl.textContent.trim() : '';
+                const title = alt.length >= 2 ? alt : nameText;
                 if (!title || title.length < 2) continue;
 
                 const linkEl = li.querySelector('a[href*="/comic/"]');
@@ -107,7 +133,7 @@ class ComicoAgent(CrawlerAgent):
                         rank: rank,
                         title: title,
                         url: fullUrl || 'https://www.comico.jp/menu/all_comic/ranking',
-                        thumbnail_url: src,
+                        thumbnail_url: thumbUrl,
                     });
                 }
             }

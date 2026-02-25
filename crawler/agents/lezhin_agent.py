@@ -37,46 +37,54 @@ class LezhinAgent(CrawlerAgent):
         self.genre_results = {}
 
     async def crawl(self, browser: Browser) -> List[Dict[str, Any]]:
-        """레진코믹스 종합 + 장르별 랭킹 크롤링"""
+        """레진코믹스 종합 + 장르별 랭킹 크롤링 - API 직접 호출"""
         page = await browser.new_page()
         all_rankings = []
 
         try:
+            # 먼저 페이지 로드 (쿠키/세션 확보)
+            await page.goto(self.url, wait_until='domcontentloaded', timeout=20000)
+            await page.wait_for_timeout(3000)
+
+            # 장르 목록 API 호출해서 hash_id 매핑
+            genre_map = await page.evaluate("""async () => {
+                try {
+                    const resp = await fetch('/api/genres?type=genre_rank');
+                    if (!resp.ok) return null;
+                    const data = await resp.json();
+                    return data?.results?.data || null;
+                } catch(e) {
+                    return null;
+                }
+            }""")
+
+            # hash_id 매핑 구성
+            hash_map = {}
+            if genre_map:
+                for g in genre_map:
+                    hash_map[g.get('name', '')] = g.get('hash_id', '')
+                self.logger.info(f"   장르 API: {len(genre_map)}개 장르 확인")
+
             for genre_key, genre_info in self.GENRE_RANKINGS.items():
                 label = genre_info['name']
                 tab_text = genre_info['tab']
 
                 self.logger.info(f"📱 레진코믹스 [{label}] 크롤링 중...")
 
-                await page.goto(self.url, wait_until='domcontentloaded', timeout=20000)
-                await page.wait_for_timeout(5000)
+                # API에서 해당 장르의 hash_id 찾기
+                genre_hash = ''
+                if not tab_text:
+                    # 종합 = 첫 번째 장르
+                    genre_hash = hash_map.get('総合', '')
+                else:
+                    genre_hash = hash_map.get(tab_text, '')
 
-                # 장르 탭 클릭 (종합이 아닌 경우)
-                if tab_text:
-                    try:
-                        tab = await page.query_selector(f'text="{tab_text}"')
-                        if tab:
-                            await tab.click()
-                            await page.wait_for_timeout(3000)
-                    except Exception:
-                        pass
-
-                # 스크롤 다운으로 lazy loading 트리거
-                for _ in range(5):
-                    await page.evaluate('window.scrollBy(0, 1000)')
-                    await page.wait_for_timeout(500)
-
-                # 텍스트 기반 파싱 (타이틀) + DOM 기반 (썸네일 URL)
-                body_text = await page.inner_text('body')
-                rankings = self._parse_text_rankings(body_text, genre_key)
-
-                # DOM에서 썸네일 URL 매핑
-                thumb_items = await self._parse_dom_rankings(page, genre_key)
-                for i, r in enumerate(rankings):
-                    if i < len(thumb_items) and thumb_items[i].get('thumbnail_url'):
-                        r['thumbnail_url'] = thumb_items[i]['thumbnail_url']
-                        if thumb_items[i].get('url'):
-                            r['url'] = thumb_items[i]['url']
+                if genre_hash:
+                    # API cursor pagination으로 100개 수집
+                    rankings = await self._fetch_via_api(page, genre_hash, genre_key)
+                else:
+                    self.logger.info(f"   hash_id 없음, 스크롤 폴백...")
+                    rankings = await self._crawl_scroll(page, genre_key, tab_text)
 
                 self.genre_results[genre_key] = rankings
                 self.logger.info(f"   ✅ [{label}]: {len(rankings)}개 작품")
@@ -88,6 +96,88 @@ class LezhinAgent(CrawlerAgent):
 
         finally:
             await page.close()
+
+    async def _fetch_via_api(self, page, genre_hash: str, genre_key: str) -> List[Dict[str, Any]]:
+        """레진 API cursor pagination으로 100개 수집"""
+        all_items = await page.evaluate("""async (args) => {
+            const [genreHash, maxItems] = args;
+            const results = [];
+            let cursor = '';
+
+            for (let i = 0; i < 10; i++) {
+                try {
+                    let url = '/api/ranking?genre_hash_id=' + genreHash + '&type=daily';
+                    if (cursor) url += '&cursor=' + cursor;
+
+                    const resp = await fetch(url);
+                    if (!resp.ok) break;
+                    const data = await resp.json();
+
+                    const items = data?.results?.data || [];
+                    if (items.length === 0) break;
+
+                    for (const item of items) {
+                        const comic = item.comic || {};
+                        results.push({
+                            rank: item.rank || (results.length + 1),
+                            title: comic.name || '',
+                            url: comic.id ? ('https://lezhin.jp/comic/' + comic.id) : '',
+                            thumbnail_url: comic.cover_thumbnail_url || '',
+                        });
+                    }
+
+                    // 다음 페이지 cursor (pagination.next에 위치)
+                    const pagination = data?.results?.pagination || {};
+                    cursor = pagination.next || '';
+                    const hasMore = pagination.has_more_pages;
+                    if (!cursor || !hasMore || results.length >= maxItems) break;
+                } catch(e) {
+                    break;
+                }
+            }
+            return results;
+        }""", [genre_hash, 100])
+
+        return [
+            {
+                'rank': item['rank'],
+                'title': item['title'],
+                'genre': genre_key,
+                'url': item.get('url', ''),
+                'thumbnail_url': item.get('thumbnail_url', ''),
+            }
+            for item in all_items[:100]
+        ]
+
+    async def _crawl_scroll(self, page, genre_key: str, tab_text: str) -> List[Dict[str, Any]]:
+        """스크롤 기반 폴백 (API 실패 시)"""
+        await page.goto(self.url, wait_until='domcontentloaded', timeout=20000)
+        await page.wait_for_timeout(5000)
+
+        if tab_text:
+            try:
+                tab = await page.query_selector(f'text="{tab_text}"')
+                if tab:
+                    await tab.click()
+                    await page.wait_for_timeout(3000)
+            except Exception:
+                pass
+
+        for _ in range(15):
+            await page.evaluate('window.scrollBy(0, 1000)')
+            await page.wait_for_timeout(800)
+
+        body_text = await page.inner_text('body')
+        rankings = self._parse_text_rankings(body_text, genre_key)
+
+        thumb_items = await self._parse_dom_rankings(page, genre_key)
+        for i, r in enumerate(rankings):
+            if i < len(thumb_items) and thumb_items[i].get('thumbnail_url'):
+                r['thumbnail_url'] = thumb_items[i]['thumbnail_url']
+                if thumb_items[i].get('url'):
+                    r['url'] = thumb_items[i]['url']
+
+        return rankings
 
     async def _parse_dom_rankings(self, page, genre_key: str) -> List[Dict[str, Any]]:
         """DOM에서 랭킹 아이템 + 썸네일 추출"""
