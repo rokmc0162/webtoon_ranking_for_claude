@@ -22,13 +22,15 @@ export default async function TitleDetailPage({ params }: PageProps) {
              thumbnail_url, thumbnail_base64,
              author, publisher, label, tags, description,
              hearts, favorites, rating, review_count,
-             best_rank, first_seen_date, last_seen_date
+             best_rank,
+             first_seen_date::text as first_seen_date,
+             last_seen_date::text as last_seen_date
       FROM works
       WHERE platform = ${platform} AND title = ${title}
       LIMIT 1
     `,
     sql`
-      SELECT date, rank::int as rank
+      SELECT date::text as date, rank::int as rank
       FROM rankings
       WHERE title = ${title} AND platform = ${platform}
         AND COALESCE(sub_category, '') = ''
@@ -65,27 +67,27 @@ export default async function TitleDetailPage({ params }: PageProps) {
 
   const w = metaRows[0];
   const metadata = {
-    platform: w.platform,
-    title: w.title,
-    title_kr: w.title_kr || "",
-    genre: w.genre || "",
-    genre_kr: w.genre_kr || "",
-    is_riverse: w.is_riverse ?? false,
-    url: w.url || "",
-    thumbnail_url: w.thumbnail_url || null,
-    thumbnail_base64: w.thumbnail_base64 || null,
-    author: w.author || "",
-    publisher: w.publisher || "",
-    label: w.label || "",
-    tags: w.tags || "",
-    description: w.description || "",
-    hearts: w.hearts ?? null,
-    favorites: w.favorites ?? null,
+    platform: String(w.platform),
+    title: String(w.title),
+    title_kr: String(w.title_kr || ""),
+    genre: String(w.genre || ""),
+    genre_kr: String(w.genre_kr || ""),
+    is_riverse: Boolean(w.is_riverse ?? false),
+    url: String(w.url || ""),
+    thumbnail_url: w.thumbnail_url ? String(w.thumbnail_url) : null,
+    thumbnail_base64: w.thumbnail_base64 ? String(w.thumbnail_base64) : null,
+    author: String(w.author || ""),
+    publisher: String(w.publisher || ""),
+    label: String(w.label || ""),
+    tags: String(w.tags || ""),
+    description: String(w.description || ""),
+    hearts: w.hearts != null ? Number(w.hearts) : null,
+    favorites: w.favorites != null ? Number(w.favorites) : null,
     rating: w.rating ? Number(w.rating) : null,
-    review_count: w.review_count ?? null,
-    best_rank: w.best_rank ?? null,
-    first_seen_date: w.first_seen_date || null,
-    last_seen_date: w.last_seen_date || null,
+    review_count: w.review_count != null ? Number(w.review_count) : null,
+    best_rank: w.best_rank != null ? Number(w.best_rank) : null,
+    first_seen_date: w.first_seen_date ? String(w.first_seen_date) : null,
+    last_seen_date: w.last_seen_date ? String(w.last_seen_date) : null,
   };
 
   const genre = genreRows.length > 0 ? genreRows[0].sub_category : "";
@@ -95,7 +97,7 @@ export default async function TitleDetailPage({ params }: PageProps) {
   const [genreRankRows, crossPlatformRows] = await Promise.all([
     genre
       ? sql`
-          SELECT date, rank::int as rank
+          SELECT date::text as date, rank::int as rank
           FROM rankings
           WHERE title = ${title} AND platform = ${platform}
             AND sub_category = ${genre}
@@ -119,18 +121,18 @@ export default async function TitleDetailPage({ params }: PageProps) {
         `,
   ]);
 
-  // 장르 히스토리 구성
+  // 장르 히스토리 구성 (date/rank를 명시적으로 변환)
   const genreRankMap: Record<string, number> = {};
   for (const r of genreRankRows) {
-    genreRankMap[r.date] = r.rank;
+    genreRankMap[String(r.date)] = Number(r.rank);
   }
 
   const allDates = new Set<string>();
-  for (const r of overallRows) allDates.add(r.date);
+  for (const r of overallRows) allDates.add(String(r.date));
   for (const d of Object.keys(genreRankMap)) allDates.add(d);
 
   const overallMap: Record<string, number> = {};
-  for (const r of overallRows) overallMap[r.date] = r.rank;
+  for (const r of overallRows) overallMap[String(r.date)] = Number(r.rank);
 
   const history = Array.from(allDates)
     .sort()
@@ -144,7 +146,7 @@ export default async function TitleDetailPage({ params }: PageProps) {
   const crossPlatform = await Promise.all(
     crossPlatformRows.map(async (cp) => {
       const latestRankRows = await sql`
-        SELECT rank::int as rank, date
+        SELECT rank::int as rank, date::text as date
         FROM rankings
         WHERE title = ${cp.title} AND platform = ${cp.platform}
           AND COALESCE(sub_category, '') = ''
@@ -153,25 +155,25 @@ export default async function TitleDetailPage({ params }: PageProps) {
       `;
       const cpPlatform = PLATFORMS.find((p) => p.id === cp.platform);
       return {
-        platform: cp.platform,
-        platform_name: cpPlatform?.name || cp.platform,
-        best_rank: cp.best_rank ?? null,
-        latest_rank: latestRankRows.length > 0 ? latestRankRows[0].rank : null,
-        latest_date: latestRankRows.length > 0 ? latestRankRows[0].date : null,
+        platform: String(cp.platform),
+        platform_name: cpPlatform?.name || String(cp.platform),
+        best_rank: cp.best_rank != null ? Number(cp.best_rank) : null,
+        latest_rank: latestRankRows.length > 0 ? Number(latestRankRows[0].rank) : null,
+        latest_date: latestRankRows.length > 0 ? String(latestRankRows[0].date) : null,
         rating: cp.rating ? Number(cp.rating) : null,
-        review_count: cp.review_count ?? null,
+        review_count: cp.review_count != null ? Number(cp.review_count) : null,
       };
     })
   );
 
-  // 리뷰 처리
+  // 리뷰 처리 (Date 객체를 문자열로 변환하여 직렬화 보장)
   const reviews = reviewRows.map((r) => ({
-    reviewer_name: r.reviewer_name || "",
-    reviewer_info: r.reviewer_info || "",
-    body: r.body || "",
-    rating: r.rating ?? null,
-    likes_count: r.likes_count ?? 0,
-    is_spoiler: r.is_spoiler ?? false,
+    reviewer_name: String(r.reviewer_name || ""),
+    reviewer_info: String(r.reviewer_info || ""),
+    body: String(r.body || ""),
+    rating: r.rating != null ? Number(r.rating) : null,
+    likes_count: Number(r.likes_count ?? 0),
+    is_spoiler: Boolean(r.is_spoiler ?? false),
     reviewed_at: r.reviewed_at
       ? new Date(r.reviewed_at).toISOString().split("T")[0]
       : null,

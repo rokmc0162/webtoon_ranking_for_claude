@@ -9,9 +9,9 @@ export const dynamic = "force-dynamic";
 export default async function Home() {
   const defaultPlatform = "piccoma";
 
-  // 1. 날짜 목록 조회
-  const dateRows = await sql`SELECT DISTINCT date FROM rankings ORDER BY date DESC`;
-  const dates = dateRows.map((r) => r.date);
+  // 1. 날짜 목록 조회 (date를 text로 캐스트하여 Date 객체 방지)
+  const dateRows = await sql`SELECT DISTINCT date::text as date FROM rankings ORDER BY date DESC`;
+  const dates: string[] = dateRows.map((r) => String(r.date));
   const latestDate = dates[0] || "";
 
   if (!latestDate) {
@@ -38,13 +38,13 @@ export default async function Home() {
       GROUP BY COALESCE(sub_category, '')
     `,
     sql`
-      SELECT rank, title, title_kr, genre, genre_kr, url, is_riverse
+      SELECT rank::int as rank, title, title_kr, genre, genre_kr, url, is_riverse
       FROM rankings
       WHERE date = ${latestDate} AND platform = ${defaultPlatform} AND COALESCE(sub_category, '') = ''
       ORDER BY rank
     `,
     sql`
-      SELECT DISTINCT date FROM rankings
+      SELECT DISTINCT date::text as date FROM rankings
       WHERE date < ${latestDate} AND platform = ${defaultPlatform}
       ORDER BY date DESC LIMIT 1
     `,
@@ -65,7 +65,7 @@ export default async function Home() {
   const [prevRankings, thumbRows] = await Promise.all([
     prevDateRows.length > 0
       ? sql`
-          SELECT title, rank FROM rankings
+          SELECT title, rank::int as rank FROM rankings
           WHERE date = ${prevDateRows[0].date} AND platform = ${defaultPlatform}
             AND COALESCE(sub_category, '') = ''
             AND title = ANY(${titles})
