@@ -30,9 +30,9 @@ class DetailScraper:
         self.max_works = max_works
         self.delay_seconds = delay_seconds
 
-    async def run(self, browser: Browser):
+    async def run(self, browser: Browser, riverse_only: bool = False):
         """메인 실행: 메타데이터가 필요한 작품들을 순차 처리"""
-        works = get_works_needing_detail(self.max_works)
+        works = get_works_needing_detail(self.max_works, riverse_only=riverse_only)
         if not works:
             logger.info("상세 스크래핑 대상 없음")
             return
@@ -318,7 +318,7 @@ class DetailScraper:
         return detail
 
 
-async def run_detail_scraper(max_works: int = 50):
+async def run_detail_scraper(max_works: int = 50, riverse_only: bool = False):
     """독립 실행용 래퍼"""
     from playwright.async_api import async_playwright
 
@@ -326,13 +326,21 @@ async def run_detail_scraper(max_works: int = 50):
         browser = await p.chromium.launch(headless=True)
         try:
             scraper = DetailScraper(max_works=max_works)
-            await scraper.run(browser)
+            await scraper.run(browser, riverse_only=riverse_only)
         finally:
             await browser.close()
 
 
 if __name__ == "__main__":
+    import argparse
+    parser = argparse.ArgumentParser(description='작품 상세 메타데이터 스크래퍼')
+    parser.add_argument('--riverse', action='store_true', help='리버스 작품만 수집 (전체 강제 재수집)')
+    parser.add_argument('--max-works', type=int, default=50, help='최대 작품 수 (기본 50)')
+    args = parser.parse_args()
+
+    max_w = args.max_works if not args.riverse else max(args.max_works, 500)
+    mode = "리버스 전용" if args.riverse else "일반"
     print("=" * 60)
-    print("상세 페이지 메타데이터 스크래퍼 (독립 실행)")
+    print(f"상세 페이지 메타데이터 스크래퍼 ({mode}, 최대 {max_w}개)")
     print("=" * 60)
-    asyncio.run(run_detail_scraper(max_works=10))
+    asyncio.run(run_detail_scraper(max_works=max_w, riverse_only=args.riverse))

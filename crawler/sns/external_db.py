@@ -102,17 +102,41 @@ def get_external_data(title: str) -> List[Dict[str, Any]]:
     return result
 
 
-def get_works_for_external(max_count: int = 200) -> List[Dict[str, str]]:
-    """외부 데이터 수집 대상 작품 목록 (최근 14일 랭킹 등장)."""
+def get_works_for_external(max_count: int = 200, riverse_only: bool = False,
+                           asura_only: bool = False) -> List[Dict[str, str]]:
+    """외부 데이터 수집 대상 작품 목록.
+
+    Args:
+        max_count: 최대 작품 수
+        riverse_only: True이면 리버스 작품만 (날짜 제한 해제)
+        asura_only: True이면 Asura 작품만 (날짜 제한 해제)
+    """
     conn = get_db_connection()
     cur = conn.cursor()
-    cur.execute('''
-        SELECT DISTINCT w.title, w.platform
-        FROM works w
-        WHERE w.last_seen_date >= (CURRENT_DATE - INTERVAL '14 days')::date
-        ORDER BY w.title
-        LIMIT %s
-    ''', (max_count,))
+    if riverse_only:
+        cur.execute('''
+            SELECT DISTINCT w.title, w.platform
+            FROM works w
+            WHERE w.is_riverse = TRUE
+            ORDER BY w.title
+            LIMIT %s
+        ''', (max_count,))
+    elif asura_only:
+        cur.execute('''
+            SELECT DISTINCT w.title, w.platform
+            FROM works w
+            WHERE w.platform = 'asura'
+            ORDER BY w.title
+            LIMIT %s
+        ''', (max_count,))
+    else:
+        cur.execute('''
+            SELECT DISTINCT w.title, w.platform
+            FROM works w
+            WHERE w.last_seen_date >= (CURRENT_DATE - INTERVAL '14 days')::date
+            ORDER BY w.title
+            LIMIT %s
+        ''', (max_count,))
     result = [{'title': r[0], 'platform': r[1]} for r in cur.fetchall()]
     conn.close()
     return result

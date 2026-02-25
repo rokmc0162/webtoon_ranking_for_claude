@@ -19,10 +19,21 @@ from crawler.review_crawler import run_review_crawler
 
 def main():
     """리뷰 수집 메인"""
+    import argparse
+    parser = argparse.ArgumentParser(description='리뷰/코멘트 수집')
+    parser.add_argument('--riverse', action='store_true', help='리버스 작품만 수집')
+    parser.add_argument('--max-works', type=int, default=0, help='최대 작품 수 (0=무제한)')
+    args = parser.parse_args()
+
     try:
         init_db()
-        print("\n📝 주간 리뷰/코멘트 수집 시작 (3개 플랫폼 동시 실행)\n")
-        asyncio.run(run_review_crawler(max_works=0, concurrency=1))
+        mode = "리버스 전용" if args.riverse else "전체"
+        print(f"\n📝 리뷰/코멘트 수집 시작 ({mode}, 3개 플랫폼 동시 실행)\n")
+        asyncio.run(run_review_crawler(
+            max_works=args.max_works,
+            concurrency=1,
+            riverse_only=args.riverse
+        ))
         print("\n✅ 리뷰 수집 완료")
         sys.exit(0)
 

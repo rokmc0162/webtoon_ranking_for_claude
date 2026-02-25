@@ -256,7 +256,11 @@ class AsuraAgent:
 
         while True:
             url = f'{BASE_URL}/series?page={page_num}&order=popular'
-            await page.goto(url, wait_until='domcontentloaded', timeout=30000)
+            try:
+                await page.goto(url, wait_until='domcontentloaded', timeout=30000)
+            except Exception as e:
+                logger.warning(f"   페이지 {page_num} 로드 실패: {e} — 시리즈 목록 수집 종료")
+                break
             await page.wait_for_timeout(3000)
 
             try:
@@ -652,7 +656,7 @@ class AsuraAgent:
         return comments or []
 
     @staticmethod
-    def _parse_relative_time(text: str) -> str | None:
+    def _parse_relative_time(text: str) -> Optional[str]:
         """'3 months ago' → approximate ISO date string"""
         if not text:
             return None

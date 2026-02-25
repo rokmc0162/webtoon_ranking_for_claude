@@ -42,10 +42,10 @@ class ReviewCrawler:
         self.delay_seconds = delay_seconds
         self.concurrency = concurrency
 
-    async def run(self, browser: Browser):
+    async def run(self, browser: Browser, riverse_only: bool = False):
         """메인: 3개 플랫폼 병렬 실행"""
         limit = self.max_works if self.max_works > 0 else 10000
-        works = get_works_for_review(limit)
+        works = get_works_for_review(limit, riverse_only=riverse_only)
         if not works:
             logger.info("리뷰 수집 대상 없음")
             return
@@ -534,7 +534,7 @@ class ReviewCrawler:
         return all_reviews
 
 
-async def run_review_crawler(max_works: int = 0, concurrency: int = 1):
+async def run_review_crawler(max_works: int = 0, concurrency: int = 1, riverse_only: bool = False):
     """독립 실행용 래퍼"""
     from playwright.async_api import async_playwright
 
@@ -546,13 +546,20 @@ async def run_review_crawler(max_works: int = 0, concurrency: int = 1):
                 delay_seconds=3.0,
                 concurrency=concurrency
             )
-            await crawler.run(browser)
+            await crawler.run(browser, riverse_only=riverse_only)
         finally:
             await browser.close()
 
 
 if __name__ == "__main__":
+    import argparse
+    parser = argparse.ArgumentParser(description='리뷰/코멘트 수집 크롤러')
+    parser.add_argument('--riverse', action='store_true', help='리버스 작품만 수집')
+    parser.add_argument('--max-works', type=int, default=10, help='최대 작품 수')
+    args = parser.parse_args()
+
+    mode = "리버스 전용" if args.riverse else "일반"
     print("=" * 60)
-    print("리뷰/코멘트 수집 크롤러 v2 (플랫폼 동시 실행)")
+    print(f"리뷰/코멘트 수집 크롤러 v2 ({mode})")
     print("=" * 60)
-    asyncio.run(run_review_crawler(max_works=10))
+    asyncio.run(run_review_crawler(max_works=args.max_works, riverse_only=args.riverse))

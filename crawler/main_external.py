@@ -41,8 +41,9 @@ ALL_SOURCES = [
 DEFAULT_SOURCES = ['anilist', 'mal', 'youtube']
 
 
-async def run_collectors(sources: list, max_works: int = 200):
-    works = get_works_for_external(max_works)
+async def run_collectors(sources: list, max_works: int = 200,
+                         riverse_only: bool = False, asura_only: bool = False):
+    works = get_works_for_external(max_works, riverse_only=riverse_only, asura_only=asura_only)
     if not works:
         logger.info("수집 대상 작품 없음")
         return
@@ -115,6 +116,8 @@ def main():
     parser.add_argument('--twitter', action='store_true', help='Twitter/X')
     parser.add_argument('--all', action='store_true', help='전체 9개 소스')
     parser.add_argument('--max-works', type=int, default=200, help='최대 작품 수')
+    parser.add_argument('--riverse', action='store_true', help='리버스 작품만')
+    parser.add_argument('--asura', action='store_true', help='Asura 작품만')
     args = parser.parse_args()
 
     try:
@@ -131,8 +134,12 @@ def main():
         if not sources:
             sources = DEFAULT_SOURCES[:]
 
-        print(f"\n🌐 외부 데이터 수집 시작: {', '.join(sources)}\n")
-        asyncio.run(run_collectors(sources, args.max_works))
+        filter_mode = "리버스" if args.riverse else ("Asura" if args.asura else "전체")
+        print(f"\n🌐 외부 데이터 수집 시작: {', '.join(sources)} ({filter_mode})\n")
+        asyncio.run(run_collectors(
+            sources, args.max_works,
+            riverse_only=args.riverse, asura_only=args.asura
+        ))
         print("\n✅ 외부 데이터 수집 완료")
         sys.exit(0)
 

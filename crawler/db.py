@@ -412,36 +412,56 @@ def save_reviews(platform: str, work_title: str, reviews: List[Dict[str, Any]]) 
     return count
 
 
-def get_works_needing_detail(max_count: int = 50) -> List[Dict[str, str]]:
+def get_works_needing_detail(max_count: int = 50, riverse_only: bool = False) -> List[Dict[str, str]]:
     """
     상세 메타데이터가 필요한 작품 목록 조회
     - detail_scraped_at이 NULL이거나 7일 이상 지난 작품
     - 최근 랭킹 등장 순으로 우선
 
+    Args:
+        max_count: 최대 작품 수
+        riverse_only: True이면 리버스 작품만 (detail_scraped_at 조건 무시, 강제 재수집)
+
     Returns:
         [{platform, title, url}, ...]
     """
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute('''
-        SELECT platform, title, url
-        FROM works
-        WHERE url IS NOT NULL AND url != ''
-          AND (detail_scraped_at IS NULL
-               OR detail_scraped_at < NOW() - INTERVAL '7 days')
-        ORDER BY last_seen_date DESC NULLS LAST,
-                 detail_scraped_at ASC NULLS FIRST
-        LIMIT %s
-    ''', (max_count,))
+    if riverse_only:
+        # 리버스 작품은 기존 수집 여부와 무관하게 전부 재수집
+        cursor.execute('''
+            SELECT platform, title, url
+            FROM works
+            WHERE url IS NOT NULL AND url != ''
+              AND is_riverse = TRUE
+              AND platform != 'asura'
+            ORDER BY last_seen_date DESC NULLS LAST
+            LIMIT %s
+        ''', (max_count,))
+    else:
+        cursor.execute('''
+            SELECT platform, title, url
+            FROM works
+            WHERE url IS NOT NULL AND url != ''
+              AND (detail_scraped_at IS NULL
+                   OR detail_scraped_at < NOW() - INTERVAL '7 days')
+            ORDER BY last_seen_date DESC NULLS LAST,
+                     detail_scraped_at ASC NULLS FIRST
+            LIMIT %s
+        ''', (max_count,))
     result = [{'platform': r[0], 'title': r[1], 'url': r[2]} for r in cursor.fetchall()]
     conn.close()
     return result
 
 
-def get_works_for_review(max_count: int = 100) -> List[Dict[str, str]]:
+def get_works_for_review(max_count: int = 100, riverse_only: bool = False) -> List[Dict[str, str]]:
     """
     리뷰 수집 대상 작품 목록 (최근 7일 랭킹 등장, 픽코마 제외)
     플랫폼별 균등 분배: max_count를 플랫폼 수로 나눠서 각 플랫폼에서 고르게 가져옴
+
+    Args:
+        max_count: 최대 작품 수 (0 = 무제한)
+        riverse_only: True이면 리버스 작품만 (7일 제한 해제)
 
     Returns:
         [{platform, title, url}, ...]
@@ -449,7 +469,17 @@ def get_works_for_review(max_count: int = 100) -> List[Dict[str, str]]:
     conn = get_db_connection()
     cursor = conn.cursor()
 
-    if max_count <= 0 or max_count >= 10000:
+    if riverse_only:
+        # 리버스 작품 전체 (날짜 제한 없이, 픽코마/아수라 제외)
+        cursor.execute('''
+            SELECT DISTINCT w.platform, w.title, w.url
+            FROM works w
+            WHERE w.is_riverse = TRUE
+              AND w.platform NOT IN ('piccoma', 'asura')
+              AND w.url IS NOT NULL AND w.url != ''
+            ORDER BY w.platform, w.title
+        ''')
+    elif max_count <= 0 or max_count >= 10000:
         # 무제한: 전체 가져오기
         cursor.execute('''
             SELECT DISTINCT w.platform, w.title, w.url
