@@ -19,8 +19,8 @@ logging.basicConfig(
 )
 logger = logging.getLogger('crawler.orchestrator')
 
-# 전체 플랫폼 수
-TOTAL_PLATFORMS = 12
+# 전체 플랫폼 수 (시모아 어덜트는 코믹시모아에 통합)
+TOTAL_PLATFORMS = 11
 
 
 class CrawlerOrchestrator:
@@ -63,7 +63,6 @@ class CrawlerOrchestrator:
         from crawler.agents.lezhin_agent import LezhinAgent
         from crawler.agents.beltoon_agent import BeltoonAgent
         from crawler.agents.unext_agent import UnextAgent
-        from crawler.agents.cmoa_sexy_agent import CmoaSexyAgent
 
         # Initialize browser
         async with async_playwright() as p:
@@ -85,7 +84,6 @@ class CrawlerOrchestrator:
                     LezhinAgent(),
                     BeltoonAgent(),
                     UnextAgent(),
-                    CmoaSexyAgent(),
                 ]
 
                 total = len(agents)

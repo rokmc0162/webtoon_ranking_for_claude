@@ -5,7 +5,8 @@
 - SSR+CSR 하이브리드 (Vue.js)
 - IP 제한 없음
 - img.cover-main__img 셀렉터로 썸네일 추출
-- 초기 10개만 표시, "もっと見る" 클릭으로 확장
+- 종합: /ranking/ 페이지에서 "もっと見る" 클릭 + 스크롤
+- 장르별: /ranking/details/?genre=xxx 또는 ?tag=xxx (2026 URL 패턴)
 """
 
 import re
@@ -19,12 +20,12 @@ class EbookjapanAgent(CrawlerAgent):
     """이북재팬 일간 랭킹 크롤러 에이전트"""
 
     GENRE_RANKINGS = {
-        '': {'name': '종합', 'path': '/ranking/'},
-        '少女・女性': {'name': '소녀/여성', 'path': '/ranking/category/1/'},
-        '少年・青年': {'name': '소년/청년', 'path': '/ranking/category/2/'},
-        'ファンタジー': {'name': '판타지', 'path': '/ranking/category/26/'},
-        'BL': {'name': 'BL', 'path': '/ranking/category/5/'},
-        'TL': {'name': 'TL', 'path': '/ranking/category/4/'},
+        '': {'name': '종합', 'url': 'https://ebookjapan.yahoo.co.jp/ranking/'},
+        '少女・女性': {'name': '소녀/여성', 'url': 'https://ebookjapan.yahoo.co.jp/ranking/details/?genre=womens'},
+        '少年・青年': {'name': '소년/청년', 'url': 'https://ebookjapan.yahoo.co.jp/ranking/details/?genre=mens'},
+        'ファンタジー': {'name': '판타지', 'url': 'https://ebookjapan.yahoo.co.jp/ranking/details/?tag=112'},
+        'BL': {'name': 'BL', 'url': 'https://ebookjapan.yahoo.co.jp/ranking/details/?genre=bl'},
+        'TL': {'name': 'TL', 'url': 'https://ebookjapan.yahoo.co.jp/ranking/details/?genre=tl'},
     }
 
     def __init__(self):
@@ -43,13 +44,21 @@ class EbookjapanAgent(CrawlerAgent):
         try:
             for genre_key, genre_info in self.GENRE_RANKINGS.items():
                 label = genre_info['name']
-                path = genre_info['path']
-                url = f'https://ebookjapan.yahoo.co.jp{path}'
+                url = genre_info['url']
 
                 self.logger.info(f"📱 이북재팬 [{label}] 크롤링 중... → {url}")
 
                 await page.goto(url, wait_until='domcontentloaded', timeout=20000)
                 await page.wait_for_timeout(4000)
+
+                # 팝업 닫기 (쿠폰/미션 팝업)
+                try:
+                    close_btn = await page.query_selector('button:has-text("閉じる")')
+                    if close_btn:
+                        await close_btn.click()
+                        await page.wait_for_timeout(1000)
+                except Exception:
+                    pass
 
                 # 종합 페이지: "もっと見る" 클릭 + 대량 스크롤로 100개 로드
                 if genre_key == '':
@@ -82,10 +91,25 @@ class EbookjapanAgent(CrawlerAgent):
                                 break
                             prev_count = curr_count
                 else:
-                    # 장르 페이지: 스크롤만 (14개가 사이트 한계)
-                    for _ in range(5):
+                    # 장르 페이지 (/ranking/details/): 스크롤로 50개 로드
+                    prev_count = 0
+                    for scroll_i in range(15):
                         await page.evaluate('window.scrollBy(0, 800)')
                         await page.wait_for_timeout(500)
+                        if scroll_i % 5 == 4:
+                            curr_count = await page.evaluate("""() => {
+                                const imgs = document.querySelectorAll('img.cover-main__img');
+                                let c = 0;
+                                for (const img of imgs) {
+                                    const s = img.getAttribute('src') || '';
+                                    if (s.startsWith('http') && !s.includes('loading')) c++;
+                                }
+                                return c;
+                            }""")
+                            self.logger.info(f"   스크롤 {scroll_i+1}: {curr_count}개 로드됨")
+                            if curr_count >= 50 or (curr_count == prev_count and curr_count > 0):
+                                break
+                            prev_count = curr_count
 
                 # DOM 파싱을 메인으로 사용 (img alt에서 타이틀 + 썸네일)
                 rankings = await self._parse_dom_rankings(page, genre_key)
@@ -225,4 +249,11 @@ class EbookjapanAgent(CrawlerAgent):
                 continue
             genre_name = self.GENRE_RANKINGS[genre_key]['name']
             save_rankings(date, self.platform_id, rankings, sub_category=genre_key)
+            genre_meta = [
+                {'title': item['title'], 'thumbnail_url': item.get('thumbnail_url', ''),
+                 'url': item.get('url', ''), 'genre': item.get('genre', ''), 'rank': item.get('rank')}
+                for item in rankings if item.get('thumbnail_url')
+            ]
+            if genre_meta:
+                save_works_metadata(self.platform_id, genre_meta, date=date, sub_category=genre_key)
             self.logger.info(f"   💾 [{genre_name}]: {len(rankings)}개 저장")

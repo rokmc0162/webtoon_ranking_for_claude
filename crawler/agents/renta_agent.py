@@ -6,7 +6,9 @@
 - IP 제한 없음
 - img.c-contents_cover 셀렉터로 썸네일 추출
 - lazyload → data-src에 실제 URL
-- 장르별 랭킹: 같은 페이지(ranking_c.htm)에 섹션별로 나뉨 (h2 + swiper)
+- 장르별 랭킹: 별도 URL로 접근
+  - 종합: /renta/sc/frm/page/ranking_c.htm (li.swiper-slide 기반)
+  - タテコミ: /renta/sc/frm/search?sort=rank&span=d&site_type=t (검색 결과 기반)
 """
 
 import re
@@ -20,11 +22,15 @@ class RentaAgent(CrawlerAgent):
     """렌타 마이너치 랭킹 크롤러 에이전트"""
 
     # 장르별 랭킹 매핑
-    # 같은 ranking_c.htm 페이지 내에 h2 섹션으로 구분됨
-    # section_id: 페이지 내 <section> 또는 <div> id
     GENRE_RANKINGS = {
-        '': {'name': '종합', 'path': '/renta/sc/frm/page/ranking_c.htm'},
-        'タテコミ': {'name': '타테코미(웹툰)', 'section_keyword': 'タテコミ'},
+        '': {
+            'name': '종합',
+            'url': 'https://renta.papy.co.jp/renta/sc/frm/page/ranking_c.htm',
+        },
+        'タテコミ': {
+            'name': '타테코미(웹툰)',
+            'url': 'https://renta.papy.co.jp/renta/sc/frm/search?sort=rank&span=d&site_type=t',
+        },
     }
 
     def __init__(self):
@@ -49,13 +55,15 @@ class RentaAgent(CrawlerAgent):
         all_rankings = []
 
         try:
-            self.logger.info(f"📱 렌타 [종합] 크롤링 중... → {self.url}")
+            # ===== 종합 랭킹 =====
+            genre_url = self.GENRE_RANKINGS['']['url']
+            self.logger.info(f"📱 렌타 [종합] 크롤링 중... → {genre_url}")
 
-            await page.goto(self.url, wait_until='domcontentloaded', timeout=30000)
+            await page.goto(genre_url, wait_until='domcontentloaded', timeout=30000)
             await page.wait_for_timeout(5000)
 
             # DOM 기반 추출 (썸네일 포함)
-            rankings = await self._extract_via_dom(page)
+            rankings = await self._extract_ranking_page(page)
 
             # 폴백: JS evaluate
             if len(rankings) < 10:
@@ -66,24 +74,11 @@ class RentaAgent(CrawlerAgent):
             self.genre_results[''] = all_rankings
             self.logger.info(f"   ✅ [종합]: {len(all_rankings)}개 작품")
 
-            # ===== タテコミ 섹션 크롤링 =====
-            self.logger.info(f"📱 렌타 [タテコミ] 크롤링 중...")
-            tatekomi_rankings = await self._extract_section(page, 'タテコミ')
+            # ===== タテコミ 랭킹 (별도 URL) =====
+            tatekomi_url = self.GENRE_RANKINGS['タテコミ']['url']
+            self.logger.info(f"📱 렌타 [タテコミ] 크롤링 중... → {tatekomi_url}")
 
-            if len(tatekomi_rankings) < 5:
-                # 폴백: タテコミ 섹션으로 스크롤 후 재시도
-                self.logger.info("   タテコミ 섹션 스크롤 후 재시도...")
-                try:
-                    await page.evaluate("""() => {
-                        const h2 = Array.from(document.querySelectorAll('h2'))
-                            .find(h => h.textContent.includes('タテコミ'));
-                        if (h2) h2.scrollIntoView({behavior: 'instant'});
-                    }""")
-                    await page.wait_for_timeout(3000)
-                    tatekomi_rankings = await self._extract_section(page, 'タテコミ')
-                except Exception:
-                    pass
-
+            tatekomi_rankings = await self._extract_search_rankings(page, tatekomi_url, 'タテコミ')
             self.genre_results['タテコミ'] = tatekomi_rankings[:100]
             self.logger.info(f"   ✅ [タテコミ]: {len(tatekomi_rankings)}개 작품")
 
@@ -93,82 +88,101 @@ class RentaAgent(CrawlerAgent):
             await page.close()
             await ctx.close()
 
-    async def _extract_section(self, page, section_keyword: str) -> List[Dict[str, Any]]:
-        """특정 장르 섹션(h2 기준)에서 작품 추출"""
-        items = await page.evaluate("""(keyword) => {
-            const results = [];
+    async def _extract_search_rankings(self, page, url: str, genre_key: str) -> List[Dict[str, Any]]:
+        """검색 결과 페이지에서 랭킹 추출 (タテコミ 등)
 
-            // h2 태그에서 해당 장르 섹션 찾기
-            const allH2 = document.querySelectorAll('h2');
-            let targetH2 = null;
-            for (const h2 of allH2) {
-                if (h2.textContent.includes(keyword + ' ランキング') ||
-                    h2.textContent.includes(keyword + 'ランキング') ||
-                    h2.textContent.trim().startsWith(keyword)) {
-                    targetH2 = h2;
-                    break;
+        구조: .list-item_wrap > .desclist-item
+        제목: .desclist-title_text
+        썸네일: .desclist-cover_link img
+        URL: a href
+        페이지네이션: 여러 페이지 수집 (최대 4페이지 = 100개)
+        """
+        all_items = []
+
+        for page_num in range(1, 5):  # 최대 4페이지 (약 25개/페이지)
+            page_url = f"{url}&page={page_num}" if page_num > 1 else url
+
+            await page.goto(page_url, wait_until='domcontentloaded', timeout=30000)
+            await page.wait_for_timeout(3000)
+
+            items = await page.evaluate("""() => {
+                const results = [];
+                // 검색 결과 아이템: .desclist-item 또는 유사 컨테이너
+                const containers = document.querySelectorAll('.desclist-item, .list-item_wrap .desclist-cover_link');
+
+                // 방법 1: desclist-item 기반
+                const descItems = document.querySelectorAll('.desclist-item');
+                if (descItems.length > 0) {
+                    for (const item of descItems) {
+                        const titleEl = item.querySelector('.desclist-title_text, .desclist-title_link');
+                        const title = titleEl ? titleEl.textContent.trim() : '';
+                        if (!title || title.length < 2) continue;
+
+                        const linkEl = item.querySelector('a[href*="/frm/item/"]');
+                        const href = linkEl ? linkEl.getAttribute('href') : '';
+                        const fullUrl = href ? (href.startsWith('http') ? href : 'https://renta.papy.co.jp' + href) : '';
+
+                        const imgEl = item.querySelector('img');
+                        const imgSrc = imgEl ? (imgEl.getAttribute('data-src') || imgEl.getAttribute('src') || '') : '';
+                        const thumbUrl = imgSrc.startsWith('http') ? imgSrc : (imgSrc.startsWith('//') ? 'https:' + imgSrc : '');
+
+                        results.push({ title, url: fullUrl, thumbnail_url: thumbUrl });
+                    }
                 }
-            }
 
-            if (!targetH2) return results;
+                // 방법 2: img.c-contents_cover 기반 (폴백)
+                if (results.length === 0) {
+                    const imgs = document.querySelectorAll('img.c-contents_cover, img[class*="cover"]');
+                    for (const img of imgs) {
+                        const src = img.getAttribute('data-src') || img.getAttribute('src') || '';
+                        if (!src || src.includes('space.gif') || src.includes('blank') || src.includes('icon')) continue;
 
-            // h2의 부모 section 또는 가까운 컨테이너에서 작품 찾기
-            // 구조: section > div.c-innerwrap_side > h2 + div(swiper)
-            const section = targetH2.closest('section') || targetH2.parentElement;
-            if (!section) return results;
+                        const alt = img.getAttribute('alt') || '';
+                        let title = alt.replace(/の表紙$/, '').trim();
+                        if (!title || title.length < 2) {
+                            const container = img.closest('li') || img.closest('div') || img.parentElement;
+                            const a = container ? container.querySelector('a[href*="/frm/item/"]') : null;
+                            if (a) title = a.textContent.trim();
+                        }
+                        if (!title || title.length < 2) continue;
 
-            // section 내의 모든 li.swiper-slide에서 작품 추출
-            const slides = section.querySelectorAll('li.swiper-slide, li');
-            let rank = 0;
+                        const container = img.closest('li') || img.closest('div') || img.parentElement;
+                        const linkEl = container ? container.querySelector('a[href*="/frm/item/"]') : null;
+                        const href = linkEl ? linkEl.getAttribute('href') : '';
+                        const fullUrl = href ? (href.startsWith('http') ? href : 'https://renta.papy.co.jp' + href) : '';
 
-            for (const li of slides) {
-                const img = li.querySelector('img.c-contents_cover, img[class*="cover"], img[data-src]');
-                if (!img) continue;
+                        const thumbUrl = src.startsWith('http') ? src : (src.startsWith('//') ? 'https:' + src : '');
 
-                const src = img.getAttribute('data-src') || img.getAttribute('src') || '';
-                if (!src || src.includes('space.gif') || src.includes('blank') || src.includes('icon')) continue;
-
-                const alt = img.getAttribute('alt') || '';
-                let title = alt.replace(/の表紙$/, '').trim();
-
-                if (!title || title.length < 2) {
-                    const a = li.querySelector('a[href*="/frm/item/"]');
-                    if (a) title = a.textContent.trim();
+                        results.push({ title, url: fullUrl, thumbnail_url: thumbUrl });
+                    }
                 }
-                if (!title || title.length < 2) continue;
 
-                const linkEl = li.querySelector('a[href*="/frm/item/"]');
-                const href = linkEl ? linkEl.getAttribute('href') : '';
-                const fullUrl = href ? (href.startsWith('http') ? href : 'https://renta.papy.co.jp' + href) : '';
+                return results;
+            }""")
 
-                const thumbUrl = src.startsWith('http') ? src : (src.startsWith('//') ? 'https:' + src : 'https://renta.papy.co.jp' + src);
+            if not items:
+                self.logger.info(f"   페이지 {page_num}: 작품 없음, 중단")
+                break
 
-                rank++;
-                if (rank <= 100) {
-                    results.push({
-                        rank: rank,
-                        title: title,
-                        url: fullUrl,
-                        thumbnail_url: thumbUrl,
-                    });
-                }
-            }
-            return results;
-        }""", section_keyword)
+            start_rank = len(all_items) + 1
+            for i, item in enumerate(items):
+                all_items.append({
+                    'rank': start_rank + i,
+                    'title': item['title'],
+                    'genre': genre_key,
+                    'url': item.get('url', ''),
+                    'thumbnail_url': item.get('thumbnail_url', ''),
+                })
 
-        return [
-            {
-                'rank': item['rank'],
-                'title': item['title'],
-                'genre': section_keyword,
-                'url': item.get('url', ''),
-                'thumbnail_url': item.get('thumbnail_url', ''),
-            }
-            for item in items[:100]
-        ]
+            self.logger.info(f"   페이지 {page_num}: {len(items)}개 추출 (누적 {len(all_items)}개)")
 
-    async def _extract_via_dom(self, page) -> List[Dict[str, Any]]:
-        """DOM에서 직접 추출 (img.c-contents_cover 사용)"""
+            if len(all_items) >= 100:
+                break
+
+        return all_items[:100]
+
+    async def _extract_ranking_page(self, page) -> List[Dict[str, Any]]:
+        """종합 랭킹 페이지에서 DOM 추출 (img.c-contents_cover 사용)"""
         items = await page.evaluate("""() => {
             const results = [];
             // renta: li.swiper-slide 안에 img.c-contents_cover

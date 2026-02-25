@@ -74,6 +74,7 @@ export const PLATFORMS: PlatformInfo[] = [
       { key: "女性マンガ", label: "여성만화" },
       { key: "BL", label: "BL" },
       { key: "TL", label: "TL" },
+      { key: "sexy", label: "어덜트" },
     ],
   },
   {
@@ -172,16 +173,6 @@ export const PLATFORMS: PlatformInfo[] = [
     color: "#00BCD4",
     logo: "/unext.png",
     sourceUrl: "https://video.unext.jp/book/ranking/comic",
-    genres: [
-      { key: "", label: "종합" },
-    ],
-  },
-  {
-    id: "cmoa_sexy",
-    name: "시모아(어덜트)",
-    color: "#FF8A65",
-    logo: "/cmoa_sexy.jpg",
-    sourceUrl: "https://www.cmoa.jp/search/purpose/ranking/sexy/",
     genres: [
       { key: "", label: "종합" },
     ],

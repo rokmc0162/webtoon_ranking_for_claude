@@ -28,6 +28,7 @@ class CmoaAgent(CrawlerAgent):
         '女性マンガ': {'name': '여성만화', 'slug': 'lady'},
         'BL': {'name': 'BL', 'slug': 'boyslove'},
         'TL': {'name': 'TL', 'slug': 'teenslove'},
+        'sexy': {'name': '어덜트', 'slug': 'sexy'},
     }
 
     def __init__(self):
