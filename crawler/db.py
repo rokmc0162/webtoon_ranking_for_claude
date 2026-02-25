@@ -181,8 +181,12 @@ def save_works_metadata(platform: str, works: List[Dict[str, Any]],
         genre_kr = translate_genre(genre) if genre else ''
         is_riverse = is_riverse_title(title)
 
-        # unified_works UPSERT → id 획득
+        # Asura: 한국어 매핑 없으면 영어 제목을 title_kr로 사용 (fallback)
         title_en = title if platform == 'asura' else ''
+        if not title_kr and platform == 'asura':
+            title_kr = title
+
+        # unified_works UPSERT → id 획득
         unified_id = _upsert_unified_work(
             cursor, title_kr, title,
             genre=genre, genre_kr=genre_kr,

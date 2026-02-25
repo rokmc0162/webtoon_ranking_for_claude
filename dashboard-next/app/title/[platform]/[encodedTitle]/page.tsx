@@ -61,8 +61,28 @@ export default async function TitleDetailPage({ params }: PageProps) {
     `,
   ]);
 
+  // 정확한 제목 매칭 실패 시, 정규화 매칭 시도 (대소문자/하이픈/아포스트로피 차이 대응)
   if (metaRows.length === 0) {
-    notFound();
+    const fuzzyRows = await sql`
+      SELECT platform, title, title_kr, genre, genre_kr, is_riverse, url,
+             thumbnail_url, thumbnail_base64,
+             author, publisher, label, tags, description,
+             hearts, favorites, rating, review_count,
+             best_rank,
+             first_seen_date::text as first_seen_date,
+             last_seen_date::text as last_seen_date
+      FROM works
+      WHERE platform = ${platform}
+        AND LOWER(REGEXP_REPLACE(title, '[^a-zA-Z0-9]', '', 'g'))
+          = LOWER(REGEXP_REPLACE(${title}, '[^a-zA-Z0-9]', '', 'g'))
+      LIMIT 1
+    `;
+    if (fuzzyRows.length === 0) {
+      notFound();
+    }
+    // 정규화 매칭 성공 → 올바른 제목 페이지로 리다이렉트
+    const { redirect } = await import("next/navigation");
+    redirect(`/title/${platform}/${encodeURIComponent(fuzzyRows[0].title)}`);
   }
 
   const w = metaRows[0];

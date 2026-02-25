@@ -79,9 +79,12 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  // 잘린 제목(Asura 등) → works 테이블의 전체 제목과 매칭 안되는 경우 prefix LIKE 폴백
+  // 매칭 안된 제목 → prefix LIKE + 정규화 매칭 (대소문자/하이픈/아포스트로피 차이 대응)
   const missingTitles = titles.filter((t) => !thumbnails[t]);
   if (missingTitles.length > 0) {
+    // normalize: 소문자 + 영숫자만
+    const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
+
     const fallbackRows = await sql`
       SELECT w.title AS full_title, w.thumbnail_url, w.unified_work_id
       FROM works w
@@ -89,11 +92,14 @@ export async function GET(request: NextRequest) {
         AND EXISTS (
           SELECT 1 FROM unnest(${missingTitles}::text[]) AS t(short)
           WHERE w.title LIKE t.short || '%'
+             OR LOWER(REGEXP_REPLACE(w.title, '[^a-zA-Z0-9]', '', 'g'))
+                = LOWER(REGEXP_REPLACE(t.short, '[^a-zA-Z0-9]', '', 'g'))
         )
     `;
     for (const fb of fallbackRows) {
-      // 잘린 제목 → full_title 매핑
-      const matchedShort = missingTitles.find((t) => fb.full_title.startsWith(t));
+      const matchedShort = missingTitles.find(
+        (t) => fb.full_title.startsWith(t) || norm(fb.full_title) === norm(t)
+      );
       if (matchedShort) {
         if (fb.thumbnail_url && !thumbnails[matchedShort]) {
           thumbnails[matchedShort] = fb.thumbnail_url;

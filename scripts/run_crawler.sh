@@ -45,6 +45,7 @@ echo "[$(date '+%Y-%m-%d %H:%M:%S')] Asura Scans 크롤링 시작..." >> "${LOG_
 /usr/bin/python3 crawler/main_asura.py --phase series >> "${LOG_FILE}" 2>&1
 echo "[$(date '+%Y-%m-%d %H:%M:%S')] Asura Scans 크롤링 완료" >> "${LOG_FILE}"
 
+echo "[$(date '+%Y-%m-%d %H:%M:%S')] 모든 크롤링 완료" >> "${LOG_FILE}"
 echo "" >> "${LOG_FILE}"
 
 # 30일 이상 된 로그 파일 삭제
