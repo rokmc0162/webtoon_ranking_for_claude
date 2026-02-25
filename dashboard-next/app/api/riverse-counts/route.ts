@@ -22,5 +22,9 @@ export async function GET(request: NextRequest) {
     counts[r.sub_category] = r.count;
   }
 
-  return NextResponse.json(counts);
+  return NextResponse.json(counts, {
+    headers: {
+      "Cache-Control": "public, s-maxage=300, stale-while-revalidate=600",
+    },
+  });
 }

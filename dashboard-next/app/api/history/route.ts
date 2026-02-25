@@ -11,30 +11,30 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "title and platform required" }, { status: 400 });
   }
 
-  // 1. 종합순위 (sub_category = '')
-  const overallRows = await sql`
-    SELECT date, rank::int as rank
-    FROM rankings
-    WHERE title = ${title} AND platform = ${platform}
-      AND COALESCE(sub_category, '') = ''
-    ORDER BY date DESC
-    LIMIT ${days}
-  `;
-
-  // 2. 이 작품의 장르 sub_category 찾기
-  const genreRows = await sql`
-    SELECT sub_category, COUNT(*)::int as cnt
-    FROM rankings
-    WHERE title = ${title} AND platform = ${platform}
-      AND sub_category IS NOT NULL AND sub_category != ''
-    GROUP BY sub_category
-    ORDER BY cnt DESC
-    LIMIT 1
-  `;
+  // 1+2 병렬: 종합순위 + 장르 sub_category 동시 조회
+  const [overallRows, genreRows] = await Promise.all([
+    sql`
+      SELECT date, rank::int as rank
+      FROM rankings
+      WHERE title = ${title} AND platform = ${platform}
+        AND COALESCE(sub_category, '') = ''
+      ORDER BY date DESC
+      LIMIT ${days}
+    `,
+    sql`
+      SELECT sub_category, COUNT(*)::int as cnt
+      FROM rankings
+      WHERE title = ${title} AND platform = ${platform}
+        AND sub_category IS NOT NULL AND sub_category != ''
+      GROUP BY sub_category
+      ORDER BY cnt DESC
+      LIMIT 1
+    `,
+  ]);
 
   const genre = genreRows.length > 0 ? genreRows[0].sub_category : "";
 
-  // 3. 장르순위
+  // 3. 장르순위 (장르가 있을 때만)
   let genreRankMap: Record<string, number> = {};
   if (genre) {
     const genreRankRows = await sql`
@@ -66,5 +66,9 @@ export async function GET(request: NextRequest) {
       genre_rank: genreRankMap[date] ?? null,
     }));
 
-  return NextResponse.json({ overall: history, genre });
+  return NextResponse.json({ overall: history, genre }, {
+    headers: {
+      "Cache-Control": "public, s-maxage=300, stale-while-revalidate=600",
+    },
+  });
 }

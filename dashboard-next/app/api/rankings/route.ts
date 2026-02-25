@@ -43,11 +43,11 @@ export async function GET(request: NextRequest) {
       : Promise.resolve([]),
     titles.length > 0
       ? sql`
-          SELECT title, thumbnail_url, thumbnail_base64
+          SELECT title, thumbnail_url
           FROM works
           WHERE platform = ${platform}
             AND title = ANY(${titles})
-            AND (thumbnail_url IS NOT NULL OR thumbnail_base64 IS NOT NULL)
+            AND thumbnail_url IS NOT NULL
         `
       : Promise.resolve([]),
   ]);
@@ -68,13 +68,12 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  // thumbnails map
-  const thumbnails: Record<string, { url?: string; base64?: string }> = {};
+  // thumbnails map (URL only, no base64 for performance)
+  const thumbnails: Record<string, string> = {};
   for (const t of thumbRows) {
-    thumbnails[t.title] = {
-      url: t.thumbnail_url || undefined,
-      base64: t.thumbnail_base64 || undefined,
-    };
+    if (t.thumbnail_url) {
+      thumbnails[t.title] = t.thumbnail_url;
+    }
   }
 
   const result = rankings.map((r) => ({
@@ -86,8 +85,7 @@ export async function GET(request: NextRequest) {
     url: r.url,
     is_riverse: r.is_riverse,
     rank_change: rankChanges[r.title] ?? 0,
-    thumbnail_url: thumbnails[r.title]?.url || null,
-    thumbnail_base64: thumbnails[r.title]?.base64 || null,
+    thumbnail_url: thumbnails[r.title] || null,
   }));
 
   return NextResponse.json(result, {

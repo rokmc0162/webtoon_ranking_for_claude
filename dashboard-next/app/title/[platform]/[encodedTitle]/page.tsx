@@ -3,7 +3,11 @@
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { TitleHero } from "@/components/title/title-hero";
-import { RankHistoryChart } from "@/components/title/rank-history-chart";
+import dynamic from "next/dynamic";
+const RankHistoryChart = dynamic(
+  () => import("@/components/title/rank-history-chart").then((m) => m.RankHistoryChart),
+  { ssr: false, loading: () => <div className="h-64 bg-muted animate-pulse rounded-lg" /> }
+);
 import { PlatformMetrics } from "@/components/title/platform-metrics";
 import { CrossPlatformTable } from "@/components/title/cross-platform-table";
 import { ReviewSection } from "@/components/title/review-section";

@@ -36,7 +36,7 @@ class EbookjapanAgent(CrawlerAgent):
         self.genre_results = {}
 
     async def crawl(self, browser: Browser) -> List[Dict[str, Any]]:
-        """이북재팬 종합 + 카테고리별 랭킹 크롤링"""
+        """이북재팬 종합 + 카테고리별 랭킹 크롤링 - DOM 기반"""
         page = await browser.new_page()
         all_rankings = []
 
@@ -51,37 +51,54 @@ class EbookjapanAgent(CrawlerAgent):
                 await page.goto(url, wait_until='domcontentloaded', timeout=20000)
                 await page.wait_for_timeout(4000)
 
-                # "もっと見る" 버튼 클릭 시도 (더 많은 아이템 로드)
-                try:
-                    more_btn = await page.query_selector('a:has-text("もっと見る")')
-                    if more_btn:
-                        await more_btn.click()
-                        await page.wait_for_timeout(3000)
-                except Exception:
-                    pass
+                # 종합 페이지: "もっと見る" 클릭 + 대량 스크롤로 100개 로드
+                if genre_key == '':
+                    try:
+                        more_btn = await page.query_selector('a:has-text("もっと見る")')
+                        if more_btn:
+                            await more_btn.click()
+                            await page.wait_for_timeout(3000)
+                            self.logger.info(f"   もっと見る 클릭 완료")
+                    except Exception:
+                        pass
 
-                # 스크롤 다운으로 lazy loading 트리거
-                for _ in range(8):
-                    await page.evaluate('window.scrollBy(0, 800)')
-                    await page.wait_for_timeout(500)
+                    # 대량 스크롤로 lazy loading 트리거 (100개 이상 로드)
+                    prev_count = 0
+                    for scroll_i in range(25):
+                        await page.evaluate('window.scrollBy(0, 1000)')
+                        await page.wait_for_timeout(500)
+                        if scroll_i % 5 == 4:
+                            curr_count = await page.evaluate("""() => {
+                                const imgs = document.querySelectorAll('img.cover-main__img');
+                                let c = 0;
+                                for (const img of imgs) {
+                                    const s = img.getAttribute('src') || '';
+                                    if (s.startsWith('http') && !s.includes('loading')) c++;
+                                }
+                                return c;
+                            }""")
+                            self.logger.info(f"   스크롤 {scroll_i+1}: {curr_count}개 로드됨")
+                            if curr_count >= 100 or (curr_count == prev_count and curr_count > 0):
+                                break
+                            prev_count = curr_count
+                else:
+                    # 장르 페이지: 스크롤만 (14개가 사이트 한계)
+                    for _ in range(5):
+                        await page.evaluate('window.scrollBy(0, 800)')
+                        await page.wait_for_timeout(500)
 
-                # 하이브리드: 텍스트 파싱 (타이틀) + DOM (썸네일 URL) 병합
-                body_text = await page.inner_text('body')
-                rankings = self._parse_text_rankings(body_text, genre_key)
+                # DOM 파싱을 메인으로 사용 (img alt에서 타이틀 + 썸네일)
+                rankings = await self._parse_dom_rankings(page, genre_key)
 
-                # DOM에서 썸네일 URL 매핑
-                thumb_items = await self._parse_dom_rankings(page, genre_key)
-                for i, r in enumerate(rankings):
-                    if i < len(thumb_items) and thumb_items[i].get('thumbnail_url'):
-                        r['thumbnail_url'] = thumb_items[i]['thumbnail_url']
-                        if thumb_items[i].get('url'):
-                            r['url'] = thumb_items[i]['url']
+                # DOM 결과가 부족하면 텍스트 파싱 폴백 (종합만)
+                if len(rankings) < 5 and genre_key == '':
+                    self.logger.info(f"   DOM 부족({len(rankings)}개), 텍스트 폴백...")
+                    body_text = await page.inner_text('body')
+                    rankings = self._parse_text_rankings(body_text, genre_key)
 
-                self.logger.info(f"   텍스트: {len(rankings)}개, DOM 썸네일: {len(thumb_items)}개")
-
-                self.genre_results[genre_key] = rankings
                 self.logger.info(f"   ✅ [{label}]: {len(rankings)}개 작품")
 
+                self.genre_results[genre_key] = rankings
                 if genre_key == '':
                     all_rankings = rankings
 
