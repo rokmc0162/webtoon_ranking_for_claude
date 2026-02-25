@@ -180,7 +180,7 @@ def is_riverse_title(jp_title: str) -> bool:
     리버스 작품 여부 판별
 
     Args:
-        jp_title: 일본어 제목
+        jp_title: 일본어/영어 제목
 
     Returns:
         True: 리버스 작품, False: 일반 작품
@@ -207,6 +207,17 @@ def is_riverse_title(jp_title: str) -> bool:
         for jp in riverse.keys():
             if len(jp) >= 4 and jp in jp_title:
                 return True
+
+    # 한국어 제목 역체크 (영어 제목 → 한국어 매핑 → 리버스 목록 확인)
+    kr_title = get_korean_title(jp_title)
+    if kr_title:
+        kr_base = kr_title.split('[')[0].split('(')[0].strip()
+        riverse_kr = set()
+        for kr in riverse.values():
+            riverse_kr.add(kr)
+            riverse_kr.add(kr.split('[')[0].split('(')[0].strip())
+        if kr_title in riverse_kr or kr_base in riverse_kr:
+            return True
 
     return False
 
