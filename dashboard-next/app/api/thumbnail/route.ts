@@ -59,13 +59,23 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "platform and title required" }, { status: 400 });
   }
 
-  // DB에서 base64 우선, 없으면 URL 가져오기
-  const rows = await sql`
+  // DB에서 base64 우선, 없으면 URL 가져오기 (잘린 제목 prefix 매칭 폴백)
+  let rows = await sql`
     SELECT thumbnail_base64, thumbnail_url
     FROM works
     WHERE platform = ${platform} AND title = ${title}
     LIMIT 1
   `;
+
+  // 정확히 안 맞으면 prefix 매칭 시도 (Asura 잘린 제목 대응)
+  if (rows.length === 0 && title.length >= 10) {
+    rows = await sql`
+      SELECT thumbnail_base64, thumbnail_url
+      FROM works
+      WHERE platform = ${platform} AND title LIKE ${title + '%'}
+      LIMIT 1
+    `;
+  }
 
   if (rows.length === 0) {
     return new NextResponse(null, { status: 404 });

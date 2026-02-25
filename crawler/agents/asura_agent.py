@@ -207,9 +207,24 @@ class AsuraAgent:
                 seen.add(href);
                 rank++;
 
+                // URL 슬러그에서 전체 제목 복원 (DOM 텍스트가 잘려있을 수 있음)
+                // /series/nano-machine-8f5c823c → Nano Machine
+                const slugMatch = href.match(/\\/series\\/([a-z0-9-]+?)(?:-[0-9a-f]{6,})?\\/?$/);
+                let fullTitle = text.replace(/\\.\\.\\.$/, '').trim();
+                if (slugMatch && slugMatch[1]) {
+                    const fromSlug = slugMatch[1]
+                        .split('-')
+                        .map(w => w.charAt(0).toUpperCase() + w.slice(1))
+                        .join(' ');
+                    // 슬러그 제목이 DOM 제목보다 길면 슬러그 사용
+                    if (fromSlug.length > fullTitle.length) {
+                        fullTitle = fromSlug;
+                    }
+                }
+
                 results.push({
                     rank: rank,
-                    title: text.replace(/\\.\\.\\.$/, '').trim(),
+                    title: fullTitle,
                     rating: rating,
                     url: href.startsWith('http') ? href :
                         'https://asuracomic.net' + href,
@@ -307,6 +322,19 @@ class AsuraAgent:
                     }
 
                     if (!title || title.length < 2) continue;
+
+                    // DOM 제목이 잘려있을 수 있으므로 URL 슬러그에서 전체 제목 복원
+                    title = title.replace(/\\.\\.\\.$/, '').trim();
+                    const seriesSlugMatch = href.match(/series\\/([a-z0-9-]+?)(?:-[0-9a-f]{6,})?\\/?$/);
+                    if (seriesSlugMatch && seriesSlugMatch[1]) {
+                        const fromSlug = seriesSlugMatch[1]
+                            .split('-')
+                            .map(w => w.charAt(0).toUpperCase() + w.slice(1))
+                            .join(' ');
+                        if (fromSlug.length > title.length) {
+                            title = fromSlug;
+                        }
+                    }
 
                     // 썸네일
                     const img = link.querySelector('img');

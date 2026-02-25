@@ -79,6 +79,32 @@ export async function GET(request: NextRequest) {
     }
   }
 
+  // 잘린 제목(Asura 등) → works 테이블의 전체 제목과 매칭 안되는 경우 prefix LIKE 폴백
+  const missingTitles = titles.filter((t) => !thumbnails[t]);
+  if (missingTitles.length > 0) {
+    const fallbackRows = await sql`
+      SELECT w.title AS full_title, w.thumbnail_url, w.unified_work_id
+      FROM works w
+      WHERE w.platform = ${platform}
+        AND EXISTS (
+          SELECT 1 FROM unnest(${missingTitles}::text[]) AS t(short)
+          WHERE w.title LIKE t.short || '%'
+        )
+    `;
+    for (const fb of fallbackRows) {
+      // 잘린 제목 → full_title 매핑
+      const matchedShort = missingTitles.find((t) => fb.full_title.startsWith(t));
+      if (matchedShort) {
+        if (fb.thumbnail_url && !thumbnails[matchedShort]) {
+          thumbnails[matchedShort] = fb.thumbnail_url;
+        }
+        if (fb.unified_work_id && !unifiedIds[matchedShort]) {
+          unifiedIds[matchedShort] = fb.unified_work_id;
+        }
+      }
+    }
+  }
+
   const result = rankings.map((r) => ({
     rank: r.rank,
     title: r.title,
