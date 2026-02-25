@@ -75,12 +75,16 @@ class RentaAgent(CrawlerAgent):
             self.logger.info(f"   ✅ [종합]: {len(all_rankings)}개 작품")
 
             # ===== タテコミ 랭킹 (별도 URL) =====
-            tatekomi_url = self.GENRE_RANKINGS['タテコミ']['url']
-            self.logger.info(f"📱 렌타 [タテコミ] 크롤링 중... → {tatekomi_url}")
+            try:
+                tatekomi_url = self.GENRE_RANKINGS['タテコミ']['url']
+                self.logger.info(f"📱 렌타 [タテコミ] 크롤링 중... → {tatekomi_url}")
 
-            tatekomi_rankings = await self._extract_search_rankings(page, tatekomi_url, 'タテコミ')
-            self.genre_results['タテコミ'] = tatekomi_rankings[:100]
-            self.logger.info(f"   ✅ [タテコミ]: {len(tatekomi_rankings)}개 작품")
+                tatekomi_rankings = await self._extract_search_rankings(page, tatekomi_url, 'タテコミ')
+                self.genre_results['タテコミ'] = tatekomi_rankings[:100]
+                self.logger.info(f"   ✅ [タテコミ]: {len(tatekomi_rankings)}개 작품")
+            except Exception as e:
+                self.logger.warning(f"   ⚠️ [タテコミ] 크롤링 실패: {e}")
+                self.genre_results['タテコミ'] = []
 
             return all_rankings
 
