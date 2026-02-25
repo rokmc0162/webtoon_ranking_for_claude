@@ -623,6 +623,41 @@ class AsuraAgent:
 
         return comments or []
 
+    @staticmethod
+    def _parse_relative_time(text: str) -> str | None:
+        """'3 months ago' → approximate ISO date string"""
+        if not text:
+            return None
+        text = text.strip().lower()
+        now = datetime.now()
+        try:
+            if 'just now' in text or 'second' in text:
+                return now.strftime('%Y-%m-%d')
+            parts = text.split()
+            if len(parts) < 2:
+                return None
+            num = int(parts[0]) if parts[0].isdigit() else 1
+            unit = parts[1]
+            if 'minute' in unit:
+                return now.strftime('%Y-%m-%d')
+            elif 'hour' in unit:
+                return now.strftime('%Y-%m-%d')
+            elif 'day' in unit:
+                from datetime import timedelta
+                return (now - timedelta(days=num)).strftime('%Y-%m-%d')
+            elif 'week' in unit:
+                from datetime import timedelta
+                return (now - timedelta(weeks=num)).strftime('%Y-%m-%d')
+            elif 'month' in unit:
+                from datetime import timedelta
+                return (now - timedelta(days=num * 30)).strftime('%Y-%m-%d')
+            elif 'year' in unit:
+                from datetime import timedelta
+                return (now - timedelta(days=num * 365)).strftime('%Y-%m-%d')
+        except (ValueError, IndexError):
+            pass
+        return None
+
     # ===== 데이터 저장 =====
 
     async def save_all(self, date: str):
@@ -672,20 +707,9 @@ class AsuraAgent:
             ], sub_category='all')
             self.logger.info(f"   💾 All-time 랭킹: {len(all_time)}개")
 
-        # 2. 시리즈 목록 → 인기순으로 rankings 테이블에도 저장
+        # 2. 시리즈 목록 → works 메타데이터만 저장 (종합 랭킹은 존재하지 않으므로 저장 안 함)
         series = self.results['series_list']
         if series:
-            # 인기순 종합 랭킹으로 저장 (최대 100개)
-            save_rankings(date, self.platform_id, [
-                {
-                    'rank': item['rank'],
-                    'title': item['title'],
-                    'genre': '',
-                    'url': item.get('url', ''),
-                }
-                for item in series[:100]
-            ], sub_category='')
-
             # works 메타데이터 저장 (전체)
             works_meta = [
                 {
@@ -753,6 +777,10 @@ class AsuraAgent:
             from collections import defaultdict
             by_title = defaultdict(list)
             for c in comments:
+                # "X months ago" → approximate date
+                reviewed_at = self._parse_relative_time(
+                    c.get('reviewed_at_text', '')
+                )
                 by_title[c['work_title']].append({
                     'reviewer_name': c.get('reviewer_name', ''),
                     'reviewer_info': '',
@@ -760,7 +788,7 @@ class AsuraAgent:
                     'rating': None,
                     'likes_count': c.get('likes_count', 0),
                     'is_spoiler': False,
-                    'reviewed_at': None,
+                    'reviewed_at': reviewed_at,
                 })
 
             total_saved = 0

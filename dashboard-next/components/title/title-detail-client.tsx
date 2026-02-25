@@ -59,6 +59,7 @@ export function TitleDetailClient({ data }: TitleDetailClientProps) {
             data={data.rankHistory}
             platform={platform}
             platformColor={platformColor}
+            crossPlatform={data.crossPlatform}
           />
 
           {/* 3. 플랫폼 지표 */}

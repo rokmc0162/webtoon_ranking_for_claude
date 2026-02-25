@@ -11,7 +11,7 @@ import {
   ResponsiveContainer,
   Legend,
 } from "recharts";
-import type { RankHistory, RankHistoryResponse } from "@/lib/types";
+import type { RankHistoryResponse, CrossPlatformEntry } from "@/lib/types";
 import { getPlatformById } from "@/lib/constants";
 
 type DateRange = "7d" | "30d" | "90d" | "all";
@@ -20,17 +20,27 @@ interface RankHistoryChartProps {
   data: RankHistoryResponse;
   platform: string;
   platformColor: string;
+  crossPlatform?: CrossPlatformEntry[];
 }
 
-export function RankHistoryChart({ data, platform, platformColor }: RankHistoryChartProps) {
+export function RankHistoryChart({
+  data,
+  platform,
+  platformColor,
+  crossPlatform = [],
+}: RankHistoryChartProps) {
   const [range, setRange] = useState<DateRange>("30d");
+  const [showCross, setShowCross] = useState(true);
 
   const platformInfo = getPlatformById(platform);
+  const platformName = platformInfo?.name || platform;
   const genreLabel = data.genre
     ? platformInfo?.genres.find((g) => g.key === data.genre)?.label || data.genre
     : "";
 
   const hasGenre = data.genre && data.overall.some((h) => h.genre_rank !== null);
+  const crossWithHistory = crossPlatform.filter((cp) => cp.rank_history && cp.rank_history.length > 0);
+  const hasCross = crossWithHistory.length > 0;
 
   // 날짜 범위 필터
   const filtered = useMemo(() => {
@@ -39,16 +49,68 @@ export function RankHistoryChart({ data, platform, platformColor }: RankHistoryC
     return data.overall.slice(-days);
   }, [data.overall, range]);
 
-  const chartData = filtered.map((h) => ({
-    date: h.date.substring(5),
-    fullDate: h.date,
-    rank: h.rank,
-    genre_rank: h.genre_rank,
-  }));
+  // 크로스 플랫폼 포함 차트 데이터 생성
+  const chartData = useMemo(() => {
+    // 모든 날짜 수집
+    const dateSet = new Set<string>();
+    for (const h of filtered) dateSet.add(h.date);
+    if (showCross) {
+      for (const cp of crossWithHistory) {
+        for (const rh of cp.rank_history) dateSet.add(rh.date);
+      }
+    }
 
-  const allRanks = filtered.flatMap((h) =>
-    [h.rank, h.genre_rank].filter((r): r is number => r !== null)
-  );
+    const dates = Array.from(dateSet).sort();
+    const days = range === "7d" ? 7 : range === "30d" ? 30 : range === "90d" ? 90 : Infinity;
+    const sliced = days === Infinity ? dates : dates.slice(-days);
+
+    // 현재 플랫폼 데이터 맵
+    const currentMap: Record<string, { rank: number | null; genre_rank: number | null }> = {};
+    for (const h of data.overall) {
+      currentMap[h.date] = { rank: h.rank, genre_rank: h.genre_rank };
+    }
+
+    // 크로스 플랫폼 데이터 맵
+    const crossMaps: Record<string, Record<string, number>> = {};
+    for (const cp of crossWithHistory) {
+      crossMaps[cp.platform] = {};
+      for (const rh of cp.rank_history) {
+        crossMaps[cp.platform][rh.date] = rh.rank;
+      }
+    }
+
+    return sliced.map((date) => {
+      const entry: Record<string, string | number | null> = {
+        date: date.substring(5),
+        fullDate: date,
+        rank: currentMap[date]?.rank ?? null,
+        genre_rank: currentMap[date]?.genre_rank ?? null,
+      };
+      if (showCross) {
+        for (const cp of crossWithHistory) {
+          entry[`cross_${cp.platform}`] = crossMaps[cp.platform]?.[date] ?? null;
+        }
+      }
+      return entry;
+    });
+  }, [filtered, data.overall, crossWithHistory, showCross, range]);
+
+  // Y축 범위 계산
+  const allRanks = useMemo(() => {
+    const ranks: number[] = [];
+    for (const d of chartData) {
+      if (typeof d.rank === "number") ranks.push(d.rank);
+      if (typeof d.genre_rank === "number") ranks.push(d.genre_rank);
+      if (showCross) {
+        for (const cp of crossWithHistory) {
+          const v = d[`cross_${cp.platform}`];
+          if (typeof v === "number") ranks.push(v);
+        }
+      }
+    }
+    return ranks;
+  }, [chartData, showCross, crossWithHistory]);
+
   const minRank = allRanks.length > 0 ? Math.min(...allRanks) : 1;
   const maxRank = allRanks.length > 0 ? Math.max(...allRanks) : 50;
 
@@ -73,6 +135,14 @@ export function RankHistoryChart({ data, platform, platformColor }: RankHistoryC
     { key: "all", label: "전체" },
   ];
 
+  // 크로스 플랫폼 이름 맵 (툴팁용)
+  const crossNameMap: Record<string, string> = {};
+  const crossColorMap: Record<string, string> = {};
+  for (const cp of crossWithHistory) {
+    crossNameMap[`cross_${cp.platform}`] = cp.platform_name;
+    crossColorMap[`cross_${cp.platform}`] = cp.platform_color;
+  }
+
   if (data.overall.length === 0) {
     return (
       <div className="bg-card rounded-xl border p-6">
@@ -86,23 +156,37 @@ export function RankHistoryChart({ data, platform, platformColor }: RankHistoryC
 
   return (
     <div className="bg-card rounded-xl border p-4 sm:p-6">
-      <div className="flex items-center justify-between mb-4">
+      <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
         <h2 className="text-base font-bold">📊 랭킹 추이</h2>
-        <div className="flex gap-1">
-          {ranges.map((r) => (
+        <div className="flex items-center gap-2">
+          {hasCross && (
             <button
-              key={r.key}
-              onClick={() => setRange(r.key)}
+              onClick={() => setShowCross(!showCross)}
               className={`px-2.5 py-1 text-xs rounded-full transition-colors cursor-pointer ${
-                range === r.key
-                  ? "text-white font-medium"
+                showCross
+                  ? "bg-blue-500 text-white font-medium"
                   : "bg-muted text-muted-foreground hover:bg-muted/80"
               }`}
-              style={range === r.key ? { backgroundColor: platformColor } : undefined}
             >
-              {r.label}
+              크로스 플랫폼
             </button>
-          ))}
+          )}
+          <div className="flex gap-1">
+            {ranges.map((r) => (
+              <button
+                key={r.key}
+                onClick={() => setRange(r.key)}
+                className={`px-2.5 py-1 text-xs rounded-full transition-colors cursor-pointer ${
+                  range === r.key
+                    ? "text-white font-medium"
+                    : "bg-muted text-muted-foreground hover:bg-muted/80"
+                }`}
+                style={range === r.key ? { backgroundColor: platformColor } : undefined}
+              >
+                {r.label}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
@@ -125,8 +209,10 @@ export function RankHistoryChart({ data, platform, platformColor }: RankHistoryC
             <Tooltip
               // eslint-disable-next-line @typescript-eslint/no-explicit-any
               formatter={(value: any, name: any) => {
-                const label = name === "rank" ? "종합" : genreLabel;
-                return [`${value}위`, label];
+                if (name === "rank") return [`${value}위`, platformName];
+                if (name === "genre_rank") return [`${value}위`, genreLabel];
+                if (crossNameMap[name]) return [`${value}위`, crossNameMap[name]];
+                return [`${value}위`, name];
               }}
               // eslint-disable-next-line @typescript-eslint/no-explicit-any
               labelFormatter={(_label: any, payload: any) => {
@@ -139,12 +225,18 @@ export function RankHistoryChart({ data, platform, platformColor }: RankHistoryC
                 boxShadow: "0 4px 12px rgba(0,0,0,0.1)",
               }}
             />
-            {hasGenre && (
+            {(hasGenre || (showCross && hasCross)) && (
               <Legend
-                formatter={(value: string) => (value === "rank" ? "종합" : genreLabel)}
+                formatter={(value: string) => {
+                  if (value === "rank") return platformName;
+                  if (value === "genre_rank") return genreLabel;
+                  if (crossNameMap[value]) return crossNameMap[value];
+                  return value;
+                }}
                 wrapperStyle={{ fontSize: 12, paddingTop: 4 }}
               />
             )}
+            {/* 현재 플랫폼 종합 */}
             <Line
               type="monotone"
               dataKey="rank"
@@ -155,6 +247,7 @@ export function RankHistoryChart({ data, platform, platformColor }: RankHistoryC
               activeDot={{ r: 6, fill: platformColor }}
               connectNulls
             />
+            {/* 현재 플랫폼 장르 */}
             {hasGenre && (
               <Line
                 type="monotone"
@@ -169,6 +262,22 @@ export function RankHistoryChart({ data, platform, platformColor }: RankHistoryC
                 connectNulls
               />
             )}
+            {/* 크로스 플랫폼 선 */}
+            {showCross &&
+              crossWithHistory.map((cp) => (
+                <Line
+                  key={cp.platform}
+                  type="monotone"
+                  dataKey={`cross_${cp.platform}`}
+                  name={`cross_${cp.platform}`}
+                  stroke={cp.platform_color}
+                  strokeWidth={2}
+                  strokeDasharray="4 2"
+                  dot={{ fill: cp.platform_color, r: 3, strokeWidth: 1, stroke: "#fff" }}
+                  activeDot={{ r: 5, fill: cp.platform_color }}
+                  connectNulls
+                />
+              ))}
           </LineChart>
         </ResponsiveContainer>
       </div>

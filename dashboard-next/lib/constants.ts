@@ -184,7 +184,6 @@ export const PLATFORMS: PlatformInfo[] = [
     logo: "/asura.png",
     sourceUrl: "https://asuracomic.net",
     genres: [
-      { key: "", label: "종합 (인기순)" },
       { key: "weekly", label: "Weekly" },
       { key: "monthly", label: "Monthly" },
       { key: "all", label: "All-time" },

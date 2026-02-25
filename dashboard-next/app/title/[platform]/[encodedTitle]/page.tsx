@@ -142,26 +142,42 @@ export default async function TitleDetailPage({ params }: PageProps) {
       genre_rank: genreRankMap[date] ?? null,
     }));
 
-  // 크로스플랫폼 최신 순위
+  // 크로스플랫폼 최신 순위 + 랭킹 히스토리
   const crossPlatform = await Promise.all(
     crossPlatformRows.map(async (cp) => {
-      const latestRankRows = await sql`
-        SELECT rank::int as rank, date::text as date
-        FROM rankings
-        WHERE title = ${cp.title} AND platform = ${cp.platform}
-          AND COALESCE(sub_category, '') = ''
-        ORDER BY date DESC
-        LIMIT 1
-      `;
+      const [latestRankRows, historyRows] = await Promise.all([
+        sql`
+          SELECT rank::int as rank, date::text as date
+          FROM rankings
+          WHERE title = ${cp.title} AND platform = ${cp.platform}
+            AND COALESCE(sub_category, '') = ''
+          ORDER BY date DESC
+          LIMIT 1
+        `,
+        sql`
+          SELECT date::text as date, rank::int as rank
+          FROM rankings
+          WHERE title = ${cp.title} AND platform = ${cp.platform}
+            AND COALESCE(sub_category, '') = ''
+          ORDER BY date DESC
+          LIMIT 90
+        `,
+      ]);
       const cpPlatform = PLATFORMS.find((p) => p.id === cp.platform);
       return {
         platform: String(cp.platform),
         platform_name: cpPlatform?.name || String(cp.platform),
+        platform_color: cpPlatform?.color || "#666",
         best_rank: cp.best_rank != null ? Number(cp.best_rank) : null,
         latest_rank: latestRankRows.length > 0 ? Number(latestRankRows[0].rank) : null,
         latest_date: latestRankRows.length > 0 ? String(latestRankRows[0].date) : null,
         rating: cp.rating ? Number(cp.rating) : null,
         review_count: cp.review_count != null ? Number(cp.review_count) : null,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        rank_history: historyRows.map((r: any) => ({
+          date: String(r.date),
+          rank: Number(r.rank),
+        })),
       };
     })
   );

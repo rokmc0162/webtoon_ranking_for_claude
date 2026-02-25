@@ -88,11 +88,13 @@ export interface TitleDetailMetadata extends WorkMetadata {
 export interface CrossPlatformEntry {
   platform: string;
   platform_name: string;
+  platform_color: string;
   best_rank: number | null;
   latest_rank: number | null;
   latest_date: string | null;
   rating: number | null;
   review_count: number | null;
+  rank_history: { date: string; rank: number }[];
 }
 
 export interface ReviewStats {
