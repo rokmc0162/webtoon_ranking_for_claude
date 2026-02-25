@@ -71,23 +71,28 @@ class LezhinAgent(CrawlerAgent):
 
                 self.logger.info(f"📱 레진코믹스 [{label}] 크롤링 중...")
 
-                # API에서 해당 장르의 hash_id 찾기
-                genre_hash = ''
-                if not tab_text:
-                    # 종합 = 첫 번째 장르
-                    genre_hash = hash_map.get('総合', '')
-                else:
-                    genre_hash = hash_map.get(tab_text, '')
+                try:
+                    # API에서 해당 장르의 hash_id 찾기
+                    genre_hash = ''
+                    if not tab_text:
+                        # 종합 = 첫 번째 장르
+                        genre_hash = hash_map.get('総合', '')
+                    else:
+                        genre_hash = hash_map.get(tab_text, '')
 
-                if genre_hash:
-                    # API cursor pagination으로 100개 수집
-                    rankings = await self._fetch_via_api(page, genre_hash, genre_key)
-                else:
-                    self.logger.info(f"   hash_id 없음, 스크롤 폴백...")
-                    rankings = await self._crawl_scroll(page, genre_key, tab_text)
+                    if genre_hash:
+                        # API cursor pagination으로 100개 수집
+                        rankings = await self._fetch_via_api(page, genre_hash, genre_key)
+                    else:
+                        self.logger.info(f"   hash_id 없음, 스크롤 폴백...")
+                        rankings = await self._crawl_scroll(page, genre_key, tab_text)
 
-                self.genre_results[genre_key] = rankings
-                self.logger.info(f"   ✅ [{label}]: {len(rankings)}개 작품")
+                    self.genre_results[genre_key] = rankings
+                    self.logger.info(f"   ✅ [{label}]: {len(rankings)}개 작품")
+                except Exception as e:
+                    self.logger.warning(f"   ⚠️ [{label}] 크롤링 실패: {e}")
+                    self.genre_results[genre_key] = []
+                    continue
 
                 if genre_key == '':
                     all_rankings = rankings
@@ -284,4 +289,11 @@ class LezhinAgent(CrawlerAgent):
                 continue
             genre_name = self.GENRE_RANKINGS[genre_key]['name']
             save_rankings(date, self.platform_id, rankings, sub_category=genre_key)
+            genre_meta = [
+                {'title': item['title'], 'thumbnail_url': item.get('thumbnail_url', ''),
+                 'url': item.get('url', ''), 'genre': item.get('genre', ''), 'rank': item.get('rank')}
+                for item in rankings if item.get('thumbnail_url')
+            ]
+            if genre_meta:
+                save_works_metadata(self.platform_id, genre_meta, date=date, sub_category=genre_key)
             self.logger.info(f"   💾 [{genre_name}]: {len(rankings)}개 저장")

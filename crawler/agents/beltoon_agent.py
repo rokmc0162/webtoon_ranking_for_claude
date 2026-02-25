@@ -45,25 +45,30 @@ class BeltoonAgent(CrawlerAgent):
 
                 self.logger.info(f"📱 벨툰 [{label}] 크롤링 중... → {url}")
 
-                await page.goto(url, wait_until='domcontentloaded', timeout=20000)
-                await page.wait_for_timeout(5000)
+                try:
+                    await page.goto(url, wait_until='domcontentloaded', timeout=20000)
+                    await page.wait_for_timeout(5000)
 
-                # 스크롤 다운으로 lazy loading 트리거
-                for _ in range(10):
-                    await page.evaluate('window.scrollBy(0, 1000)')
-                    await page.wait_for_timeout(500)
+                    # 스크롤 다운으로 lazy loading 트리거
+                    for _ in range(10):
+                        await page.evaluate('window.scrollBy(0, 1000)')
+                        await page.wait_for_timeout(500)
 
-                # DOM 기반 파싱 (썸네일 포함)
-                rankings = await self._parse_dom_rankings(page)
+                    # DOM 기반 파싱 (썸네일 포함)
+                    rankings = await self._parse_dom_rankings(page)
 
-                # 폴백: 텍스트 기반
-                if len(rankings) < 5:
-                    self.logger.info(f"   DOM 파싱 부족, 텍스트 폴백...")
-                    body_text = await page.inner_text('body')
-                    rankings = self._parse_text_rankings(body_text)
+                    # 폴백: 텍스트 기반
+                    if len(rankings) < 5:
+                        self.logger.info(f"   DOM 파싱 부족, 텍스트 폴백...")
+                        body_text = await page.inner_text('body')
+                        rankings = self._parse_text_rankings(body_text)
 
-                self.genre_results[genre_key] = rankings
-                self.logger.info(f"   ✅ [{label}]: {len(rankings)}개 작품")
+                    self.genre_results[genre_key] = rankings
+                    self.logger.info(f"   ✅ [{label}]: {len(rankings)}개 작품")
+                except Exception as e:
+                    self.logger.warning(f"   ⚠️ [{label}] 크롤링 실패: {e}")
+                    self.genre_results[genre_key] = []
+                    continue
 
                 # 종합 랭킹은 반환값으로 사용
                 if genre_key == '':
