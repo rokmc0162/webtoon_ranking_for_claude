@@ -130,21 +130,21 @@ export default async function UnifiedWorkPage({ params }: Props) {
         url: w.url || "",
         best_rank: w.best_rank ?? null,
         latest_rank: latestRows.length > 0 ? latestRows[0].rank : null,
-        latest_date: latestRows.length > 0 ? latestRows[0].date : null,
+        latest_date: latestRows.length > 0 ? String(latestRows[0].date) : null,
         rating: w.rating ? Number(w.rating) : null,
         review_count: w.review_count ?? null,
         hearts: w.hearts ?? null,
         favorites: w.favorites ?? null,
-        first_seen_date: w.first_seen_date || null,
-        last_seen_date: w.last_seen_date || null,
+        first_seen_date: w.first_seen_date ? String(w.first_seen_date) : null,
+        last_seen_date: w.last_seen_date ? String(w.last_seen_date) : null,
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         rank_history: overallRows.map((r: any) => ({
-          date: r.date as string,
+          date: String(r.date),
           rank: r.rank as number,
         })),
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         genre_rank_history: genreRankRows.map((r: any) => ({
-          date: r.date as string,
+          date: String(r.date),
           rank: r.rank as number,
         })),
         genre_label: genreLabel,
