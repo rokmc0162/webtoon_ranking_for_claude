@@ -49,10 +49,12 @@ export function UnifiedWorkClient({ data }: UnifiedWorkClientProps) {
           {/* 3. 플랫폼별 상세 비교 테이블 */}
           <UnifiedPlatformTable platforms={data.platforms} />
 
-          {/* 4. 통합 리뷰 */}
+          {/* 4. 통합 리뷰 (더보기 지원) */}
           <UnifiedReviews
-            reviews={data.reviews}
+            initialReviews={data.reviews}
+            totalReviews={data.reviewStats.total}
             reviewStats={data.reviewStats}
+            workId={data.metadata.id}
           />
         </div>
 

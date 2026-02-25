@@ -188,18 +188,34 @@ export default async function UnifiedWorkPage({ params }: Props) {
     })
   );
 
-  // 리뷰 통합
-  const reviewRows = worksRows.length > 0
-    ? await sql`
-        SELECT r.platform, r.work_title, r.reviewer_name, r.reviewer_info,
-               r.body, r.rating, r.likes_count, r.is_spoiler, r.reviewed_at
-        FROM reviews r
-        INNER JOIN works w ON w.platform = r.platform AND w.title = r.work_title
-        WHERE w.unified_work_id = ${numId}
-        ORDER BY r.reviewed_at DESC NULLS LAST, r.collected_at DESC
-        LIMIT 50
-      `
-    : [];
+  // 리뷰 통합 (초기 50건 + 전체 수 + 평점분포)
+  const [reviewRows, reviewCountRows, ratingDistRows] = worksRows.length > 0
+    ? await Promise.all([
+        sql`
+          SELECT r.platform, r.work_title, r.reviewer_name, r.reviewer_info,
+                 r.body, r.rating, r.likes_count, r.is_spoiler, r.reviewed_at
+          FROM reviews r
+          INNER JOIN works w ON w.platform = r.platform AND w.title = r.work_title
+          WHERE w.unified_work_id = ${numId}
+          ORDER BY r.reviewed_at DESC NULLS LAST, r.collected_at DESC
+          LIMIT 50
+        `,
+        sql`
+          SELECT COUNT(*)::int as total
+          FROM reviews r
+          INNER JOIN works w ON w.platform = r.platform AND w.title = r.work_title
+          WHERE w.unified_work_id = ${numId}
+        `,
+        sql`
+          SELECT r.rating, COUNT(*)::int as cnt
+          FROM reviews r
+          INNER JOIN works w ON w.platform = r.platform AND w.title = r.work_title
+          WHERE w.unified_work_id = ${numId} AND r.rating IS NOT NULL
+          GROUP BY r.rating
+          ORDER BY r.rating
+        `,
+      ])
+    : [[], [{ total: 0 }], []];
 
   const reviews = reviewRows.map((r) => ({
     reviewer_name: r.reviewer_name || "",
@@ -214,17 +230,22 @@ export default async function UnifiedWorkPage({ params }: Props) {
     platform: r.platform || "",
   }));
 
-  const ratingsWithValues = reviews
-    .map((r) => r.rating)
-    .filter((r): r is number => r !== null);
+  const totalReviews = reviewCountRows[0]?.total || 0;
+
+  // DB에서 전체 평점분포 (초기 50건이 아닌 전체 기준)
   const ratingDistribution: Record<number, number> = {};
-  for (const r of ratingsWithValues) {
-    ratingDistribution[r] = (ratingDistribution[r] || 0) + 1;
+  let totalRated = 0;
+  let ratingSum = 0;
+  for (const row of ratingDistRows) {
+    if (row.rating != null) {
+      const r = Number(row.rating);
+      const cnt = Number(row.cnt);
+      ratingDistribution[r] = cnt;
+      totalRated += cnt;
+      ratingSum += r * cnt;
+    }
   }
-  const avgRating =
-    ratingsWithValues.length > 0
-      ? ratingsWithValues.reduce((a, b) => a + b, 0) / ratingsWithValues.length
-      : null;
+  const avgRating = totalRated > 0 ? ratingSum / totalRated : null;
 
   return (
     <UnifiedWorkClient
@@ -232,7 +253,7 @@ export default async function UnifiedWorkPage({ params }: Props) {
         metadata,
         platforms,
         reviewStats: {
-          total: reviews.length,
+          total: totalReviews,
           avg_rating: avgRating ? Math.round(avgRating * 10) / 10 : null,
           rating_distribution: ratingDistribution,
         },

@@ -521,13 +521,12 @@ def get_works_for_review(max_count: int = 100, riverse_only: bool = False) -> Li
             ORDER BY w.platform, w.title
         ''')
     elif max_count <= 0 or max_count >= 10000:
-        # 무제한: 전체 가져오기
+        # 무제한: URL 있는 전체 작품 (Piccoma/Asura 제외)
         cursor.execute('''
             SELECT DISTINCT w.platform, w.title, w.url
             FROM works w
-            WHERE w.platform != 'piccoma'
+            WHERE w.platform NOT IN ('piccoma', 'asura')
               AND w.url IS NOT NULL AND w.url != ''
-              AND w.last_seen_date >= (CURRENT_DATE - INTERVAL '7 days')::date
             ORDER BY w.platform, w.title
         ''')
     else:
