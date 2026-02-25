@@ -32,7 +32,7 @@ export default async function UnifiedWorkPage({ params }: Props) {
 
   // 서버에서 직접 데이터 조회
   const metaRows = await sql`
-    SELECT id, title_kr, title_canonical, author, artist, publisher,
+    SELECT id, title_kr, title_en, title_canonical, author, artist, publisher,
            genre, genre_kr, tags, description, is_riverse,
            thumbnail_url, thumbnail_base64
     FROM unified_works
@@ -52,6 +52,7 @@ export default async function UnifiedWorkPage({ params }: Props) {
   const metadata = {
     id: uw.id,
     title_kr: uw.title_kr || "",
+    title_en: uw.title_en || "",
     title_canonical: uw.title_canonical || "",
     author: uw.author || "",
     artist: uw.artist || "",

@@ -117,6 +117,7 @@ export interface TitleDetailResponse {
 export interface UnifiedWorkMetadata {
   id: number;
   title_kr: string;
+  title_en: string;
   title_canonical: string;
   author: string;
   artist: string;

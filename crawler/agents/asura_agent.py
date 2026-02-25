@@ -97,9 +97,38 @@ class AsuraAgent:
 
             # Phase 3: 작품 상세 + 댓글
             if 'details' in phases or 'comments' in phases:
-                targets = self.results['series_list']
+                targets = list(self.results['series_list'])
+
+                # DB에서 상세 미수집 작품도 타겟에 추가
+                try:
+                    from crawler.db import get_db_connection
+                    db_conn = get_db_connection()
+                    db_cur = db_conn.cursor()
+                    db_cur.execute("""
+                        SELECT title, url, thumbnail_url FROM works
+                        WHERE platform = 'asura'
+                          AND url IS NOT NULL AND url != ''
+                          AND (detail_scraped_at IS NULL
+                               OR detail_scraped_at < NOW() - INTERVAL '14 days')
+                    """)
+                    db_works = [
+                        {'title': r[0], 'url': r[1], 'thumbnail_url': r[2] or ''}
+                        for r in db_cur.fetchall()
+                    ]
+                    db_conn.close()
+
+                    existing_urls = {s['url'] for s in targets}
+                    extra = [w for w in db_works if w['url'] not in existing_urls]
+                    if extra:
+                        targets.extend(extra)
+                        self.logger.info(
+                            f"   DB에서 미수집 작품 {len(extra)}개 추가"
+                        )
+                except Exception as e:
+                    self.logger.warning(f"   DB 미수집 작품 로드 실패: {e}")
+
                 if not targets:
-                    self.logger.warning("   ⚠️ 시리즈 목록이 비어있음 - Phase 2 먼저 실행 필요")
+                    self.logger.warning("   ⚠️ 타겟 없음 - Phase 2 먼저 실행 필요")
                 else:
                     self.logger.info(
                         f"📝 [Phase 3] 작품 상세 + 댓글 수집 시작... "
@@ -256,10 +285,19 @@ class AsuraAgent:
 
         while True:
             url = f'{BASE_URL}/series?page={page_num}&order=popular'
-            try:
-                await page.goto(url, wait_until='domcontentloaded', timeout=30000)
-            except Exception as e:
-                logger.warning(f"   페이지 {page_num} 로드 실패: {e} — 시리즈 목록 수집 종료")
+            loaded = False
+            for attempt in range(3):
+                try:
+                    await page.goto(url, wait_until='domcontentloaded', timeout=30000)
+                    loaded = True
+                    break
+                except Exception as e:
+                    if attempt < 2:
+                        self.logger.info(f"   페이지 {page_num} 재시도 {attempt+1}/2: {e}")
+                        await page.wait_for_timeout(5000)
+                    else:
+                        self.logger.warning(f"   페이지 {page_num} 로드 실패: {e} — 시리즈 목록 수집 종료")
+            if not loaded:
                 break
             await page.wait_for_timeout(3000)
 
@@ -742,7 +780,7 @@ class AsuraAgent:
         # 2. 시리즈 목록 → works 메타데이터만 저장 (종합 랭킹은 존재하지 않으므로 저장 안 함)
         series = self.results['series_list']
         if series:
-            # works 메타데이터 저장 (전체)
+            # works 메타데이터 저장 (전체, rating/review_count 포함)
             works_meta = [
                 {
                     'title': item['title'],
@@ -750,6 +788,8 @@ class AsuraAgent:
                     'url': item.get('url', ''),
                     'genre': '',
                     'rank': item.get('rank'),
+                    'rating': item.get('rating'),
+                    'review_count': item.get('comment_count'),
                 }
                 for item in series
                 if item.get('thumbnail_url')

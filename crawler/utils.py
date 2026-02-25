@@ -120,10 +120,10 @@ def load_title_mappings() -> dict:
 
 def get_korean_title(jp_title: str) -> str:
     """
-    일본어 제목 → 한국어 제목 매핑
+    제목 → 한국어 제목 매핑 (일본어 + 영어 지원)
 
     Args:
-        jp_title: 일본어 제목
+        jp_title: 일본어 또는 영어 제목
 
     Returns:
         한국어 제목 (없으면 빈 문자열)
@@ -142,7 +142,16 @@ def get_korean_title(jp_title: str) -> str:
     if jp_title in mappings:
         return mappings[jp_title]
 
-    # 3순위: 대괄호 제거 후 매칭 (【】, [], ())
+    # 3순위: 대소문자 무시 매칭 (영어 제목용)
+    title_lower = jp_title.lower()
+    for key, kr in riverse.items():
+        if key.lower() == title_lower:
+            return kr
+    for key, kr in mappings.items():
+        if key.lower() == title_lower:
+            return kr
+
+    # 4순위: 대괄호 제거 후 매칭 (【】, [], ())
     cleaned = jp_title
     for bracket in ['【', '】', '[', ']', '(', ')']:
         cleaned = cleaned.replace(bracket, '')
@@ -153,7 +162,7 @@ def get_korean_title(jp_title: str) -> str:
         if cleaned in mappings:
             return mappings[cleaned]
 
-    # 4순위: 부분 매칭 (4글자 이상)
+    # 5순위: 부분 매칭 (4글자 이상)
     if len(jp_title) >= 4:
         for jp, kr in riverse.items():
             if len(jp) >= 4 and jp in jp_title:

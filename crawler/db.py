@@ -109,7 +109,8 @@ def _upsert_unified_work(cursor, title_kr: str, title: str, author: str = '',
                           publisher: str = '', genre: str = '', genre_kr: str = '',
                           tags: str = '', description: str = '',
                           is_riverse: bool = False, thumbnail_url: str = '',
-                          thumbnail_base64: str = '') -> Optional[int]:
+                          thumbnail_base64: str = '',
+                          title_en: str = '') -> Optional[int]:
     """
     unified_works 테이블 UPSERT 후 id 반환.
     title_kr이 비어있으면 None 반환.
@@ -120,8 +121,8 @@ def _upsert_unified_work(cursor, title_kr: str, title: str, author: str = '',
     cursor.execute('''
         INSERT INTO unified_works
             (title_kr, title_canonical, author, publisher, genre, genre_kr,
-             tags, description, is_riverse, thumbnail_url, thumbnail_base64)
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+             tags, description, is_riverse, thumbnail_url, thumbnail_base64, title_en)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         ON CONFLICT (title_kr) DO UPDATE SET
             title_canonical = COALESCE(NULLIF(EXCLUDED.title_canonical, ''), unified_works.title_canonical),
             author = COALESCE(NULLIF(EXCLUDED.author, ''), unified_works.author),
@@ -135,11 +136,12 @@ def _upsert_unified_work(cursor, title_kr: str, title: str, author: str = '',
             is_riverse = EXCLUDED.is_riverse OR unified_works.is_riverse,
             thumbnail_url = COALESCE(NULLIF(EXCLUDED.thumbnail_url, ''), unified_works.thumbnail_url),
             thumbnail_base64 = COALESCE(NULLIF(EXCLUDED.thumbnail_base64, ''), unified_works.thumbnail_base64),
+            title_en = COALESCE(NULLIF(EXCLUDED.title_en, ''), unified_works.title_en),
             updated_at = NOW()
         RETURNING id
     ''', (
         title_kr, title, author, publisher, genre, genre_kr,
-        tags, description, is_riverse, thumbnail_url, thumbnail_base64
+        tags, description, is_riverse, thumbnail_url, thumbnail_base64, title_en
     ))
     row = cursor.fetchone()
     return row[0] if row else None
@@ -180,10 +182,12 @@ def save_works_metadata(platform: str, works: List[Dict[str, Any]],
         is_riverse = is_riverse_title(title)
 
         # unified_works UPSERT → id 획득
+        title_en = title if platform == 'asura' else ''
         unified_id = _upsert_unified_work(
             cursor, title_kr, title,
             genre=genre, genre_kr=genre_kr,
-            is_riverse=is_riverse, thumbnail_url=thumbnail_url
+            is_riverse=is_riverse, thumbnail_url=thumbnail_url,
+            title_en=title_en
         )
 
         # UPSERT: 신규 작품이면 INSERT, 기존이면 갱신
@@ -221,6 +225,18 @@ def save_works_metadata(platform: str, works: List[Dict[str, Any]],
             unified_id
         ))
         count += 1
+
+        # rating/review_count가 있으면 works에 반영 (Asura 등)
+        rating = item.get('rating')
+        review_count = item.get('review_count')
+        if rating is not None or review_count is not None:
+            cursor.execute('''
+                UPDATE works SET
+                    rating = COALESCE(%s, rating),
+                    review_count = COALESCE(%s, review_count),
+                    updated_at = NOW()
+                WHERE platform = %s AND title = %s
+            ''', (rating, review_count, platform, title))
 
     conn.commit()
     conn.close()
@@ -353,12 +369,14 @@ def save_work_detail(platform: str, title: str, detail: Dict[str, Any]):
     # unified_works에도 상세 정보 반영
     title_kr = get_korean_title(title)
     if title_kr:
+        title_en = title if platform == 'asura' else ''
         _upsert_unified_work(
             cursor, title_kr, title,
             author=detail.get('author', ''),
             publisher=detail.get('publisher', ''),
             tags=detail.get('tags', ''),
             description=detail.get('description', ''),
+            title_en=title_en,
         )
 
     conn.commit()

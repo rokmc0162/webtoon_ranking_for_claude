@@ -84,7 +84,11 @@ export function UnifiedHero({ metadata, platforms }: UnifiedHeroProps) {
             {metadata.title_kr}
             {metadata.is_riverse && <RiverseBadge />}
           </h1>
-          {metadata.title_canonical && metadata.title_canonical !== metadata.title_kr && (
+          {metadata.title_en && metadata.title_en !== metadata.title_kr && (
+            <p className="text-sm text-muted-foreground mt-0.5">{metadata.title_en}</p>
+          )}
+          {metadata.title_canonical && metadata.title_canonical !== metadata.title_kr
+            && metadata.title_canonical !== metadata.title_en && (
             <p className="text-sm text-muted-foreground mt-0.5">{metadata.title_canonical}</p>
           )}
 

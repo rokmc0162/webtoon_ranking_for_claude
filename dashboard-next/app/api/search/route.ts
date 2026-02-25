@@ -35,6 +35,7 @@ export async function GET(request: NextRequest) {
     const searchPattern = `%${query}%`;
 
     // 1. rankings에서 해당 날짜의 매칭 작품 + 랭킹 정보 조회
+    //    sub_category: 일반 플랫폼은 '' (종합), Asura는 'all'
     const rankingRows = await sql`
       SELECT
         r.platform,
@@ -50,12 +51,26 @@ export async function GET(request: NextRequest) {
       FROM rankings r
       LEFT JOIN works w ON w.platform = r.platform AND w.title = r.title
       WHERE r.date = ${targetDate}
-        AND COALESCE(r.sub_category, '') = ''
+        AND (COALESCE(r.sub_category, '') = '' OR r.sub_category = 'all')
         AND (
           r.title ILIKE ${searchPattern}
           OR r.title_kr ILIKE ${searchPattern}
         )
       ORDER BY r.platform, r.rank
+    `;
+
+    // 1-2. unified_works에서도 영문 제목으로 검색 → works 연결
+    const unifiedRows = await sql`
+      SELECT w.platform, w.title, w.title_kr, w.url, w.is_riverse,
+             w.thumbnail_url, w.best_rank
+      FROM unified_works uw
+      JOIN works w ON w.unified_work_id = uw.id
+      WHERE uw.title_en ILIKE ${searchPattern}
+        AND NOT EXISTS (
+          SELECT 1 FROM rankings r2
+          WHERE r2.platform = w.platform AND r2.title = w.title
+            AND r2.date = ${targetDate}
+        )
     `;
 
     // 2. 결과를 작품별로 그룹핑
@@ -108,6 +123,28 @@ export async function GET(request: NextRequest) {
       if (row.is_riverse) {
         entry.is_riverse = true;
       }
+    }
+
+    // 2-2. unifiedRows (영문 검색 결과) 추가
+    for (const row of unifiedRows) {
+      const normalizedTitle = String(row.title).toLowerCase();
+      if (!titleMap.has(normalizedTitle)) {
+        titleMap.set(normalizedTitle, {
+          title: String(row.title),
+          title_kr: row.title_kr ? String(row.title_kr) : null,
+          thumbnail_url: row.thumbnail_url ? String(row.thumbnail_url) : null,
+          is_riverse: Boolean(row.is_riverse),
+          platforms: [],
+        });
+      }
+      const entry = titleMap.get(normalizedTitle)!;
+      entry.platforms.push({
+        platform: String(row.platform),
+        rank: row.best_rank ? Number(row.best_rank) : 999,
+        genre: null,
+        genre_kr: null,
+        url: row.url ? String(row.url) : null,
+      });
     }
 
     // 3. 결과 배열로 변환 (플랫폼 수 내림차순 정렬)
