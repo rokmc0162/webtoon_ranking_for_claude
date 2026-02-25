@@ -73,8 +73,10 @@ export default async function TitleDetailPage({ params }: PageProps) {
              last_seen_date::text as last_seen_date
       FROM works
       WHERE platform = ${platform}
-        AND LOWER(REGEXP_REPLACE(title, '[^a-zA-Z0-9]', '', 'g'))
-          = LOWER(REGEXP_REPLACE(${title}, '[^a-zA-Z0-9]', '', 'g'))
+        AND (LOWER(REGEXP_REPLACE(title, '[^a-zA-Z0-9]', '', 'g'))
+              = LOWER(REGEXP_REPLACE(${title}, '[^a-zA-Z0-9]', '', 'g'))
+             OR LEFT(LOWER(REGEXP_REPLACE(title, '[^a-zA-Z0-9]', '', 'g')), 20)
+              = LEFT(LOWER(REGEXP_REPLACE(${title}, '[^a-zA-Z0-9]', '', 'g')), 20))
       LIMIT 1
     `;
     if (fuzzyRows.length === 0) {

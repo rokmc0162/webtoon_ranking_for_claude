@@ -92,13 +92,18 @@ export async function GET(request: NextRequest) {
         AND EXISTS (
           SELECT 1 FROM unnest(${missingTitles}::text[]) AS t(short)
           WHERE w.title LIKE t.short || '%'
+             OR t.short LIKE w.title || '%'
              OR LOWER(REGEXP_REPLACE(w.title, '[^a-zA-Z0-9]', '', 'g'))
                 = LOWER(REGEXP_REPLACE(t.short, '[^a-zA-Z0-9]', '', 'g'))
+             OR LEFT(LOWER(REGEXP_REPLACE(w.title, '[^a-zA-Z0-9]', '', 'g')), 20)
+                = LEFT(LOWER(REGEXP_REPLACE(t.short, '[^a-zA-Z0-9]', '', 'g')), 20)
         )
     `;
     for (const fb of fallbackRows) {
+      const nfb = norm(fb.full_title);
       const matchedShort = missingTitles.find(
-        (t) => fb.full_title.startsWith(t) || norm(fb.full_title) === norm(t)
+        (t) => fb.full_title.startsWith(t) || t.startsWith(fb.full_title)
+          || nfb === norm(t) || nfb.slice(0, 20) === norm(t).slice(0, 20)
       );
       if (matchedShort) {
         if (fb.thumbnail_url && !thumbnails[matchedShort]) {
