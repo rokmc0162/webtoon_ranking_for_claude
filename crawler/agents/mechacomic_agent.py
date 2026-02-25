@@ -20,6 +20,7 @@ class MechacomicAgent(CrawlerAgent):
     """메챠코믹 판매 랭킹 + 카테고리별 크롤러 에이전트"""
 
     # 카테고리별 랭킹 매핑 (URL: ?genre=N)
+    # 성인 장르(TL/BL/オトナ/レディコミ)는 /r/ 접두사 경로 + 연령확인 필요
     GENRE_RANKINGS = {
         '': {'name': '종합', 'genre_id': ''},
         '少女': {'name': '소녀', 'genre_id': '2'},
@@ -27,6 +28,9 @@ class MechacomicAgent(CrawlerAgent):
         '少年': {'name': '소년', 'genre_id': '1'},
         '青年': {'name': '청년', 'genre_id': '3'},
         'ハーレクイン': {'name': '할리퀸', 'genre_id': '40'},
+        'TL': {'name': 'TL', 'genre_id': '6', 'adult': True},
+        'BL': {'name': 'BL', 'genre_id': '24', 'adult': True},
+        'オトナ': {'name': '오토나(어덜트)', 'genre_id': '5', 'adult': True},
     }
 
     def __init__(self):
@@ -83,18 +87,35 @@ class MechacomicAgent(CrawlerAgent):
     async def _crawl_category(self, page, genre_id: str, genre_key: str) -> List[Dict[str, Any]]:
         """특정 카테고리의 랭킹 크롤링 (5페이지, 상위 100개)"""
         rankings = []
+        is_adult = self.GENRE_RANKINGS.get(genre_key, {}).get('adult', False)
 
         for page_num in range(1, 6):
             # URL 구성: genre + page 파라미터
+            # 성인 장르는 /r/ 접두사 경로 사용
+            base_url = self.url
+            if is_adult:
+                base_url = base_url.replace('mechacomic.jp/', 'mechacomic.jp/r/')
+
             params = []
             if genre_id:
                 params.append(f'genre={genre_id}')
             if page_num > 1:
                 params.append(f'page={page_num}')
-            url = f'{self.url}?{"&".join(params)}' if params else self.url
+            url = f'{base_url}?{"&".join(params)}' if params else base_url
 
             await page.goto('about:blank')
             await page.goto(url, wait_until='domcontentloaded', timeout=30000)
+
+            # 성인 장르: 연령확인 다이얼로그 자동 처리 ("はい" 클릭)
+            if is_adult and page_num == 1:
+                try:
+                    yes_btn = await page.wait_for_selector('button:has-text("はい")', timeout=5000)
+                    if yes_btn:
+                        await yes_btn.click()
+                        await page.wait_for_timeout(2000)
+                except Exception:
+                    pass  # 다이얼로그가 없으면 무시
+
             await page.wait_for_selector('ul.grid li', timeout=15000)
             await page.wait_for_timeout(2000)
 

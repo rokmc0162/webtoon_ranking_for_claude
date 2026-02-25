@@ -6,6 +6,7 @@
 - IP 제한 없음
 - 해시된 클래스명 → 구조 기반 셀렉터 사용
 - li > div > span > div > img 패턴, image.balcony.studio 도메인
+- 장르별 URL: /app/{genre}/ranking (all, romance 등)
 """
 
 import re
@@ -19,7 +20,8 @@ class BeltoonAgent(CrawlerAgent):
     """벨툰 데일리 랭킹 크롤러 에이전트"""
 
     GENRE_RANKINGS = {
-        '': {'name': '종합(데일리)', 'filter': ''},
+        '': {'name': '종합(데일리)', 'slug': 'all'},
+        'ロマンス': {'name': '로만스', 'slug': 'romance'},
     }
 
     def __init__(self):
@@ -31,33 +33,41 @@ class BeltoonAgent(CrawlerAgent):
         self.genre_results = {}
 
     async def crawl(self, browser: Browser) -> List[Dict[str, Any]]:
-        """벨툰 데일리 랭킹 크롤링"""
+        """벨툰 종합 + 장르별 데일리 랭킹 크롤링"""
         page = await browser.new_page()
         all_rankings = []
 
         try:
-            self.logger.info(f"📱 벨툰 [종합] 크롤링 중... → {self.url}")
+            for genre_key, genre_info in self.GENRE_RANKINGS.items():
+                label = genre_info['name']
+                slug = genre_info['slug']
+                url = f'https://www.beltoon.jp/app/{slug}/ranking'
 
-            await page.goto(self.url, wait_until='domcontentloaded', timeout=20000)
-            await page.wait_for_timeout(5000)
+                self.logger.info(f"📱 벨툰 [{label}] 크롤링 중... → {url}")
 
-            # 스크롤 다운으로 lazy loading 트리거
-            for _ in range(10):
-                await page.evaluate('window.scrollBy(0, 1000)')
-                await page.wait_for_timeout(500)
+                await page.goto(url, wait_until='domcontentloaded', timeout=20000)
+                await page.wait_for_timeout(5000)
 
-            # DOM 기반 파싱 (썸네일 포함)
-            rankings = await self._parse_dom_rankings(page)
+                # 스크롤 다운으로 lazy loading 트리거
+                for _ in range(10):
+                    await page.evaluate('window.scrollBy(0, 1000)')
+                    await page.wait_for_timeout(500)
 
-            # 폴백: 텍스트 기반
-            if len(rankings) < 5:
-                self.logger.info("   DOM 파싱 부족, 텍스트 폴백...")
-                body_text = await page.inner_text('body')
-                rankings = self._parse_text_rankings(body_text)
+                # DOM 기반 파싱 (썸네일 포함)
+                rankings = await self._parse_dom_rankings(page)
 
-            all_rankings = rankings
-            self.genre_results[''] = rankings
-            self.logger.info(f"   ✅ [종합]: {len(rankings)}개 작품")
+                # 폴백: 텍스트 기반
+                if len(rankings) < 5:
+                    self.logger.info(f"   DOM 파싱 부족, 텍스트 폴백...")
+                    body_text = await page.inner_text('body')
+                    rankings = self._parse_text_rankings(body_text)
+
+                self.genre_results[genre_key] = rankings
+                self.logger.info(f"   ✅ [{label}]: {len(rankings)}개 작품")
+
+                # 종합 랭킹은 반환값으로 사용
+                if genre_key == '':
+                    all_rankings = rankings
 
             return all_rankings
 
@@ -174,9 +184,10 @@ class BeltoonAgent(CrawlerAgent):
         return rankings
 
     async def save(self, date: str, data: List[Dict[str, Any]]):
-        """랭킹 저장"""
+        """종합 + 장르별 랭킹 모두 저장"""
         from crawler.db import save_rankings, backup_to_json, save_works_metadata
 
+        # 종합 랭킹 저장
         save_rankings(date, self.platform_id, data, sub_category='')
         works_meta = [
             {'title': item['title'], 'thumbnail_url': item.get('thumbnail_url', ''),
@@ -186,3 +197,18 @@ class BeltoonAgent(CrawlerAgent):
         if works_meta:
             save_works_metadata(self.platform_id, works_meta, date=date, sub_category='')
         backup_to_json(date, self.platform_id, data)
+
+        # 장르별 랭킹 저장
+        for genre_key, rankings in self.genre_results.items():
+            if genre_key == '':
+                continue
+            genre_name = self.GENRE_RANKINGS[genre_key]['name']
+            save_rankings(date, self.platform_id, rankings, sub_category=genre_key)
+            genre_meta = [
+                {'title': item['title'], 'thumbnail_url': item.get('thumbnail_url', ''),
+                 'url': item.get('url', ''), 'genre': item.get('genre', ''), 'rank': item.get('rank')}
+                for item in rankings if item.get('thumbnail_url')
+            ]
+            if genre_meta:
+                save_works_metadata(self.platform_id, genre_meta, date=date, sub_category=genre_key)
+            self.logger.info(f"   💾 [{genre_name}]: {len(rankings)}개 저장")

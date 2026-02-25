@@ -55,6 +55,9 @@ export const PLATFORMS: PlatformInfo[] = [
       { key: "少年", label: "소년" },
       { key: "青年", label: "청년" },
       { key: "ハーレクイン", label: "할리퀸" },
+      { key: "TL", label: "TL" },
+      { key: "BL", label: "BL" },
+      { key: "オトナ", label: "오토나(어덜트)" },
     ],
   },
   {
@@ -101,6 +104,7 @@ export const PLATFORMS: PlatformInfo[] = [
     sourceUrl: "https://renta.papy.co.jp/renta/sc/frm/page/ranking_c.htm",
     genres: [
       { key: "", label: "종합" },
+      { key: "タテコミ", label: "타테코미(웹툰)" },
     ],
   },
   {
@@ -159,6 +163,7 @@ export const PLATFORMS: PlatformInfo[] = [
     sourceUrl: "https://www.beltoon.jp/app/all/ranking",
     genres: [
       { key: "", label: "종합" },
+      { key: "ロマンス", label: "로만스" },
     ],
   },
   {
