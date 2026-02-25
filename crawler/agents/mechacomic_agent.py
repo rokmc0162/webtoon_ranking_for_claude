@@ -71,9 +71,14 @@ class MechacomicAgent(CrawlerAgent):
                 genre_id = genre_info['genre_id']
                 self.logger.info(f"📱 메챠코믹 [{label}] 크롤링 중...")
 
-                rankings = await self._crawl_category(page, genre_id, genre_key)
-                self.genre_results[genre_key] = rankings
-                self.logger.info(f"   ✅ [{label}]: {len(rankings)}개 작품")
+                try:
+                    rankings = await self._crawl_category(page, genre_id, genre_key)
+                    self.genre_results[genre_key] = rankings
+                    self.logger.info(f"   ✅ [{label}]: {len(rankings)}개 작품")
+                except Exception as e:
+                    self.logger.warning(f"   ⚠️ [{label}] 크롤링 실패: {e}")
+                    self.genre_results[genre_key] = []
+                    continue
 
                 # 종합 랭킹은 반환값으로 사용
                 if genre_key == '':
@@ -103,20 +108,35 @@ class MechacomicAgent(CrawlerAgent):
                 params.append(f'page={page_num}')
             url = f'{base_url}?{"&".join(params)}' if params else base_url
 
+            self.logger.info(f"   📄 페이지 {page_num}: {url}")
             await page.goto('about:blank')
             await page.goto(url, wait_until='domcontentloaded', timeout=30000)
 
             # 성인 장르: 연령확인 다이얼로그 자동 처리 ("はい" 클릭)
-            if is_adult and page_num == 1:
+            # 매 페이지마다 확인 (세션이 끊길 수 있음)
+            if is_adult:
                 try:
                     yes_btn = await page.wait_for_selector('button:has-text("はい")', timeout=5000)
                     if yes_btn:
                         await yes_btn.click()
-                        await page.wait_for_timeout(2000)
+                        self.logger.info(f"   🔞 연령확인 다이얼로그 승인")
+                        await page.wait_for_timeout(3000)
                 except Exception:
                     pass  # 다이얼로그가 없으면 무시
 
-            await page.wait_for_selector('ul.grid li', timeout=15000)
+            # 랭킹 리스트 로드 대기 (성인 장르는 더 긴 타임아웃)
+            wait_timeout = 20000 if is_adult else 15000
+            try:
+                await page.wait_for_selector('ul.grid li', timeout=wait_timeout)
+            except Exception:
+                # 셀렉터 대기 실패 시 추가 대기 후 재시도
+                self.logger.warning(f"   ⚠️ 페이지 {page_num} ul.grid li 대기 실패, 재시도...")
+                await page.wait_for_timeout(3000)
+                # li가 하나도 없으면 이 페이지 스킵
+                check = await page.query_selector_all('ul.grid.grid-cols-1 > li')
+                if not check:
+                    self.logger.warning(f"   ⚠️ 페이지 {page_num} 랭킹 아이템 없음, 스킵")
+                    break
             await page.wait_for_timeout(2000)
 
             items = await page.query_selector_all('ul.grid.grid-cols-1 > li')
