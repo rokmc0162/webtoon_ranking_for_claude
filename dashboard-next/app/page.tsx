@@ -1,6 +1,7 @@
 import { sql } from "@/lib/supabase";
 import type { Ranking, PlatformStats } from "@/lib/types";
 import { DashboardClient } from "@/components/dashboard-client";
+import { PLATFORMS } from "@/lib/constants";
 import { unstable_cache } from "next/cache";
 
 // 동적 렌더링 강제 (빌드 시 DB 연결 불가)
@@ -21,12 +22,15 @@ const getInitialData = unstable_cache(
     }
 
     // 2. 통계 + 리버스카운트 + 랭킹 + 이전날짜를 병렬 조회
+    // 각 플랫폼의 "종합" sub_category 키 목록 (대부분 '', Asura는 'all')
+    const overallKeys = [...new Set(PLATFORMS.map((p) => p.genres[0]?.key ?? ""))];
+
     const [statsRows, riverseCountRows, rankingRows, prevDateRows] = await Promise.all([
       sql`
         SELECT platform, COUNT(*)::int as total,
                COUNT(*) FILTER (WHERE is_riverse = TRUE)::int as riverse
         FROM rankings
-        WHERE date = ${latestDate} AND COALESCE(sub_category, '') = ''
+        WHERE date = ${latestDate} AND COALESCE(sub_category, '') = ANY(${overallKeys})
         GROUP BY platform
       `,
       sql`

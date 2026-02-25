@@ -82,10 +82,13 @@ export function DashboardClient({
     loadRankings();
   }, [loadRankings]);
 
-  // 플랫폼 변경 시 장르 리셋
+  // 플랫폼 변경 시 장르를 해당 플랫폼의 첫 번째 장르로 설정
+  // 대부분 플랫폼은 첫 장르가 "" (종합), Asura는 "all" (All-time)
   const handlePlatformChange = (id: string) => {
     setSelectedPlatform(id);
-    setSelectedGenre("");
+    const pInfo = getPlatformById(id);
+    const firstGenreKey = pInfo?.genres[0]?.key ?? "";
+    setSelectedGenre(firstGenreKey);
     setRiverseOnly(false);
   };
 

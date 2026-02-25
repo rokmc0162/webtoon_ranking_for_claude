@@ -79,29 +79,55 @@ export default async function UnifiedWorkPage({ params }: Props) {
     worksRows.map(async (w) => {
       const pInfo = PLATFORMS.find((p) => p.id === w.platform);
 
-      const genreRows = await sql`
-        SELECT sub_category, COUNT(*)::int as cnt
-        FROM rankings
-        WHERE title = ${w.title} AND platform = ${w.platform}
-          AND sub_category IS NOT NULL AND sub_category != ''
-        GROUP BY sub_category
-        ORDER BY cnt DESC
-        LIMIT 1
-      `;
+      // 플랫폼의 첫 번째 장르 키가 "종합/overall" 역할
+      // 대부분 플랫폼은 '' (빈문자열), Asura는 'all'
+      const overallKey = pInfo?.genres[0]?.key ?? "";
+
+      // 종합이 아닌 하위 장르 중 가장 많이 기록된 것 찾기
+      const genreRows = overallKey === ""
+        ? await sql`
+            SELECT sub_category, COUNT(*)::int as cnt
+            FROM rankings
+            WHERE title = ${w.title} AND platform = ${w.platform}
+              AND sub_category IS NOT NULL AND sub_category != ''
+            GROUP BY sub_category
+            ORDER BY cnt DESC
+            LIMIT 1
+          `
+        : await sql`
+            SELECT sub_category, COUNT(*)::int as cnt
+            FROM rankings
+            WHERE title = ${w.title} AND platform = ${w.platform}
+              AND sub_category IS NOT NULL AND sub_category != ''
+              AND sub_category != ${overallKey}
+            GROUP BY sub_category
+            ORDER BY cnt DESC
+            LIMIT 1
+          `;
       const genreKey = genreRows.length > 0 ? genreRows[0].sub_category : "";
       const genreLabel = genreKey
         ? (pInfo?.genres.find((g) => g.key === genreKey)?.label || genreKey)
         : "";
 
+      // overallKey에 따라 종합 랭킹 쿼리 분기
       const [overallRows, genreRankRows, latestRows] = await Promise.all([
-        sql`
-          SELECT date, rank::int as rank
-          FROM rankings
-          WHERE title = ${w.title} AND platform = ${w.platform}
-            AND COALESCE(sub_category, '') = ''
-          ORDER BY date DESC
-          LIMIT 90
-        `,
+        overallKey === ""
+          ? sql`
+              SELECT date, rank::int as rank
+              FROM rankings
+              WHERE title = ${w.title} AND platform = ${w.platform}
+                AND COALESCE(sub_category, '') = ''
+              ORDER BY date DESC
+              LIMIT 90
+            `
+          : sql`
+              SELECT date, rank::int as rank
+              FROM rankings
+              WHERE title = ${w.title} AND platform = ${w.platform}
+                AND sub_category = ${overallKey}
+              ORDER BY date DESC
+              LIMIT 90
+            `,
         genreKey
           ? sql`
               SELECT date, rank::int as rank
@@ -112,14 +138,23 @@ export default async function UnifiedWorkPage({ params }: Props) {
               LIMIT 90
             `
           : Promise.resolve([]),
-        sql`
-          SELECT rank::int as rank, date
-          FROM rankings
-          WHERE title = ${w.title} AND platform = ${w.platform}
-            AND COALESCE(sub_category, '') = ''
-          ORDER BY date DESC
-          LIMIT 1
-        `,
+        overallKey === ""
+          ? sql`
+              SELECT rank::int as rank, date
+              FROM rankings
+              WHERE title = ${w.title} AND platform = ${w.platform}
+                AND COALESCE(sub_category, '') = ''
+              ORDER BY date DESC
+              LIMIT 1
+            `
+          : sql`
+              SELECT rank::int as rank, date
+              FROM rankings
+              WHERE title = ${w.title} AND platform = ${w.platform}
+                AND sub_category = ${overallKey}
+              ORDER BY date DESC
+              LIMIT 1
+            `,
       ]);
 
       return {
