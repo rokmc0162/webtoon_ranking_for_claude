@@ -71,11 +71,10 @@ const getInitialData = unstable_cache(
         : Promise.resolve([]),
       titles.length > 0
         ? sql`
-            SELECT title, thumbnail_url
+            SELECT title, thumbnail_url, unified_work_id
             FROM works
             WHERE platform = ${defaultPlatform}
               AND title = ANY(${titles})
-              AND thumbnail_url IS NOT NULL
           `
         : Promise.resolve([]),
     ]);
@@ -90,8 +89,10 @@ const getInitialData = unstable_cache(
     }
 
     const thumbnails: Record<string, string> = {};
+    const unifiedIds: Record<string, number> = {};
     for (const t of thumbRows) {
       if (t.thumbnail_url) thumbnails[t.title] = t.thumbnail_url;
+      if (t.unified_work_id) unifiedIds[t.title] = t.unified_work_id;
     }
 
     const rankings: Ranking[] = rankingRows.map((r) => ({
@@ -104,6 +105,7 @@ const getInitialData = unstable_cache(
       is_riverse: r.is_riverse,
       rank_change: rankChanges[r.title] ?? 0,
       thumbnail_url: thumbnails[r.title] || undefined,
+      unified_work_id: unifiedIds[r.title] || null,
     }));
 
     return { dates, latestDate, stats, riverseCounts, rankings, defaultPlatform };
