@@ -18,6 +18,7 @@ export const maxDuration = 30; // Vercel serverless timeout
 export async function GET(request: NextRequest) {
   const { searchParams } = request.nextUrl;
   const idParam = searchParams.get("id");
+  const refresh = searchParams.get("refresh") === "true";
 
   if (!idParam) {
     return NextResponse.json({ error: "id required" }, { status: 400 });
@@ -26,6 +27,24 @@ export async function GET(request: NextRequest) {
   const id = parseInt(idParam, 10);
   if (isNaN(id)) {
     return NextResponse.json({ error: "invalid id" }, { status: 400 });
+  }
+
+  // 캐시 조회 (refresh가 아닌 경우)
+  if (!refresh) {
+    const cached = await sql`
+      SELECT analysis, data_summary, generated_at
+      FROM work_analyses
+      WHERE unified_work_id = ${id}
+      LIMIT 1
+    `;
+    if (cached.length > 0) {
+      return NextResponse.json({
+        analysis: cached[0].analysis,
+        data_summary: cached[0].data_summary,
+        generated_at: cached[0].generated_at,
+        cached: true,
+      });
+    }
   }
 
   if (!process.env.ANTHROPIC_API_KEY) {
@@ -154,8 +173,9 @@ ${reviewSamples || "없음"}
 - 한 문장은 짧고 단정하게. 한 줄에 한 문장.
 - 빈 줄로 문단을 구분하세요.
 - 근거 없는 추측 금지. 데이터가 없으면 "확인 불가"로 처리.
-- 웹 검색에서 얻은 정보는 문장 끝에 (웹) 표시.
-- 전문 애널리스트가 경영진에게 브리핑하듯 쓰세요. AI가 쓴 티가 나면 안 됩니다.
+- 출처 표시 하지 마세요. (웹), (DB) 같은 태그 붙이지 마세요.
+- 전문 애널리스트가 경영진에게 브리핑하듯 쓰세요.
+- 절대로 AI가 쓴 티가 나면 안 됩니다. "~할 수 있습니다", "~로 보입니다" 같은 모호한 표현 대신 단정적으로 쓰세요.
 
 [섹션 구성]
 
@@ -194,14 +214,28 @@ ${reviewSamples || "없음"}
       .map((block) => block.text)
       .join("");
 
+    const dataSummary = {
+      platform_count: worksRows.length,
+      review_total: stats.total || 0,
+      avg_rating: stats.avg_rating || null,
+      demographics: demographics || null,
+    };
+
+    // DB에 분석 결과 저장 (UPSERT)
+    await sql`
+      INSERT INTO work_analyses (unified_work_id, analysis, data_summary, generated_at)
+      VALUES (${id}, ${text}, ${JSON.stringify(dataSummary)}, NOW())
+      ON CONFLICT (unified_work_id)
+      DO UPDATE SET analysis = EXCLUDED.analysis,
+                    data_summary = EXCLUDED.data_summary,
+                    generated_at = NOW()
+    `;
+
     return NextResponse.json({
       analysis: text,
-      data_summary: {
-        platform_count: worksRows.length,
-        review_total: stats.total || 0,
-        avg_rating: stats.avg_rating || null,
-        demographics: demographics || null,
-      },
+      data_summary: dataSummary,
+      generated_at: new Date().toISOString(),
+      cached: false,
     });
   } catch (error) {
     console.error("AI analysis error:", error);

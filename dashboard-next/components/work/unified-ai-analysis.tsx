@@ -1,6 +1,6 @@
 "use client";
 
-import { type ReactElement, useState } from "react";
+import { type ReactElement, useState, useEffect } from "react";
 
 const RV = "#0D3B70";
 
@@ -10,21 +10,46 @@ interface UnifiedAiAnalysisProps {
 
 export function UnifiedAiAnalysis({ workId }: UnifiedAiAnalysisProps) {
   const [analysis, setAnalysis] = useState<string | null>(null);
+  const [generatedAt, setGeneratedAt] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [initialLoading, setInitialLoading] = useState(true);
   const [error, setError] = useState("");
 
-  const handleAnalyze = () => {
+  // 마운트 시 캐시된 분석 자동 로드
+  useEffect(() => {
+    fetch(`/api/work-analysis?id=${workId}`)
+      .then((res) => {
+        if (!res.ok) return null;
+        return res.json();
+      })
+      .then((data) => {
+        if (data?.analysis) {
+          setAnalysis(data.analysis);
+          setGeneratedAt(data.generated_at || null);
+        }
+        setInitialLoading(false);
+      })
+      .catch(() => {
+        setInitialLoading(false);
+      });
+  }, [workId]);
+
+  const handleAnalyze = (refresh: boolean) => {
     setLoading(true);
     setError("");
-    setAnalysis(null);
 
-    fetch(`/api/work-analysis?id=${workId}`)
+    const url = refresh
+      ? `/api/work-analysis?id=${workId}&refresh=true`
+      : `/api/work-analysis?id=${workId}`;
+
+    fetch(url)
       .then((res) => {
         if (!res.ok) throw new Error("분석 실패");
         return res.json();
       })
       .then((data) => {
         setAnalysis(data.analysis);
+        setGeneratedAt(data.generated_at || null);
         setLoading(false);
       })
       .catch(() => {
@@ -33,14 +58,20 @@ export function UnifiedAiAnalysis({ workId }: UnifiedAiAnalysisProps) {
       });
   };
 
-  // 텍스트를 깔끔하게 렌더링 (마크다운 기호 제거)
+  const formatDate = (iso: string) => {
+    const d = new Date(iso);
+    return `${d.getFullYear()}.${String(d.getMonth() + 1).padStart(2, "0")}.${String(d.getDate()).padStart(2, "0")}`;
+  };
+
   const renderAnalysis = (text: string) => {
-    // 마크다운 잔재 정리
     const cleaned = text
-      .replace(/#{1,4}\s*/g, "")       // # ## ### ####
-      .replace(/\*\*([^*]+)\*\*/g, "$1") // **bold**
-      .replace(/\*([^*]+)\*/g, "$1")     // *italic*
-      .replace(/^[-•]\s+/gm, "");        // - bullet, • bullet
+      .replace(/#{1,4}\s*/g, "")
+      .replace(/\*\*([^*]+)\*\*/g, "$1")
+      .replace(/\*([^*]+)\*/g, "$1")
+      .replace(/^[-•]\s+/gm, "")
+      .replace(/\(웹\)/g, "")
+      .replace(/\(DB\)/g, "")
+      .replace(/\(웹 검색 기반\)/g, "");
 
     const lines = cleaned.split("\n");
     const elements: ReactElement[] = [];
@@ -48,22 +79,21 @@ export function UnifiedAiAnalysis({ workId }: UnifiedAiAnalysisProps) {
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i].trim();
 
-      // 섹션 제목: "1. 시장 포지션" 같은 패턴
       if (/^\d+\.\s+.+/.test(line) && line.length < 30) {
         elements.push(
           <h3
             key={i}
-            className="text-[13px] font-bold mt-5 mb-2 tracking-tight"
+            className="text-sm font-bold mt-6 mb-2 tracking-tight"
             style={{ color: RV }}
           >
             {line}
           </h3>
         );
       } else if (line === "") {
-        elements.push(<div key={i} className="h-2" />);
+        elements.push(<div key={i} className="h-1.5" />);
       } else {
         elements.push(
-          <p key={i} className="text-[13px] text-foreground/85 leading-[1.8]">
+          <p key={i} className="text-sm text-foreground/90 leading-[1.85]">
             {line}
           </p>
         );
@@ -77,9 +107,9 @@ export function UnifiedAiAnalysis({ workId }: UnifiedAiAnalysisProps) {
     <div className="bg-card rounded-xl border p-4 sm:p-6">
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-base font-bold">작품 분석</h2>
-        {!analysis && !loading && (
+        {!analysis && !loading && !initialLoading && (
           <button
-            onClick={handleAnalyze}
+            onClick={() => handleAnalyze(false)}
             className="px-4 py-1.5 text-sm font-medium rounded-full text-white transition-opacity hover:opacity-90 cursor-pointer"
             style={{ backgroundColor: RV }}
           >
@@ -88,7 +118,16 @@ export function UnifiedAiAnalysis({ workId }: UnifiedAiAnalysisProps) {
         )}
       </div>
 
-      {!analysis && !loading && !error && (
+      {initialLoading && (
+        <div className="text-center py-6">
+          <div
+            className="inline-block w-5 h-5 border-2 border-t-transparent rounded-full animate-spin"
+            style={{ borderColor: RV, borderTopColor: "transparent" }}
+          />
+        </div>
+      )}
+
+      {!analysis && !loading && !initialLoading && !error && (
         <p className="text-sm text-muted-foreground text-center py-6">
           랭킹, 리뷰, 시장 데이터를 종합한 전문 분석을 제공합니다.
         </p>
@@ -108,7 +147,7 @@ export function UnifiedAiAnalysis({ workId }: UnifiedAiAnalysisProps) {
         <div className="text-center py-6">
           <p className="text-sm text-red-500 mb-2">{error}</p>
           <button
-            onClick={handleAnalyze}
+            onClick={() => handleAnalyze(false)}
             className="text-xs hover:underline cursor-pointer"
             style={{ color: RV }}
           >
@@ -117,13 +156,15 @@ export function UnifiedAiAnalysis({ workId }: UnifiedAiAnalysisProps) {
         </div>
       )}
 
-      {analysis && (
+      {analysis && !loading && (
         <div>
           {renderAnalysis(analysis)}
           <div className="mt-5 pt-3 border-t text-xs text-muted-foreground flex items-center justify-between">
-            <span>수집 데이터 + 웹 검색 기반</span>
+            <span>
+              {generatedAt ? `분석일 ${formatDate(generatedAt)}` : ""}
+            </span>
             <button
-              onClick={handleAnalyze}
+              onClick={() => handleAnalyze(true)}
               className="hover:underline cursor-pointer"
               style={{ color: RV }}
             >
