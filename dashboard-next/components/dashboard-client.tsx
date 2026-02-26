@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect } from "react";
 import { Header } from "@/components/header";
 import { DateSelector } from "@/components/date-selector";
 import { PlatformTabs } from "@/components/platform-tabs";
@@ -39,29 +39,41 @@ export function DashboardClient({
   const [riverseOnly, setRiverseOnly] = useState(false);
   const [loading, setLoading] = useState(false); // 초기 false: 서버에서 이미 로드됨
 
-  // 초기 로드는 서버에서 완료. 날짜/플랫폼/장르 변경 시에만 클라이언트 fetch
-  const isInitialLoad = selectedDate === initialDate && selectedPlatform === initialPlatform && selectedGenre === "";
+  // 초기 상태 판별: 서버에서 미리 로드한 데이터를 재사용할 수 있는지 확인
+  const isInitialState = selectedDate === initialDate && selectedPlatform === initialPlatform && selectedGenre === "";
 
   // 통계 로드 (날짜 변경 시)
   useEffect(() => {
-    if (selectedDate === initialDate) return; // 초기값은 서버에서 로드됨
+    if (selectedDate === initialDate) {
+      // 초기 날짜로 돌아온 경우 서버 데이터 복원
+      setStats(initialStats);
+      return;
+    }
     fetch(`/api/stats?date=${selectedDate}`)
       .then((res) => res.json())
       .then(setStats);
-  }, [selectedDate, initialDate]);
+  }, [selectedDate, initialDate, initialStats]);
 
   // 리버스 카운트 로드
   useEffect(() => {
-    if (selectedDate === initialDate && selectedPlatform === initialPlatform) return;
+    if (selectedDate === initialDate && selectedPlatform === initialPlatform) {
+      // 초기 상태로 돌아온 경우 서버 데이터 복원
+      setRiverseCounts(initialRiverseCounts);
+      return;
+    }
     fetch(`/api/riverse-counts?date=${selectedDate}&platform=${selectedPlatform}`)
       .then((res) => res.json())
       .then(setRiverseCounts);
-  }, [selectedDate, selectedPlatform, initialDate, initialPlatform]);
+  }, [selectedDate, selectedPlatform, initialDate, initialPlatform, initialRiverseCounts]);
 
   // 랭킹 로드
-  const loadRankings = useCallback(() => {
-    // 초기 상태는 서버 데이터 사용
-    if (isInitialLoad) return;
+  useEffect(() => {
+    if (isInitialState) {
+      // 초기 상태로 돌아온 경우 서버 데이터 복원
+      setRankings(initialRankings);
+      setLoading(false);
+      return;
+    }
     if (!selectedDate || !selectedPlatform) return;
     setLoading(true);
     const params = new URLSearchParams({
@@ -76,11 +88,7 @@ export function DashboardClient({
         setLoading(false);
       })
       .catch(() => setLoading(false));
-  }, [selectedDate, selectedPlatform, selectedGenre, isInitialLoad]);
-
-  useEffect(() => {
-    loadRankings();
-  }, [loadRankings]);
+  }, [selectedDate, selectedPlatform, selectedGenre, isInitialState, initialRankings]);
 
   // 플랫폼 변경 시 장르를 해당 플랫폼의 첫 번째 장르로 설정
   // 대부분 플랫폼은 첫 장르가 "" (종합), Asura는 "all" (All-time)
