@@ -5,12 +5,14 @@ import Link from "next/link";
 import { getPlatformById } from "@/lib/constants";
 import type { TrendReport } from "@/lib/trend-report";
 
+// ─── Helper Components ────────────────────────────────
+
 function PlatformBadge({ platform }: { platform: string }) {
   const info = getPlatformById(platform);
   const color = info?.color ?? "#666";
   return (
     <span
-      className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-medium text-white shrink-0"
+      className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold text-white shrink-0"
       style={{ backgroundColor: color }}
     >
       {info?.name ?? platform}
@@ -18,12 +20,44 @@ function PlatformBadge({ platform }: { platform: string }) {
   );
 }
 
+function RankBadge({ rank }: { rank: number }) {
+  const bg =
+    rank === 1
+      ? "bg-yellow-400 text-yellow-900"
+      : rank === 2
+        ? "bg-gray-300 text-gray-800"
+        : rank === 3
+          ? "bg-amber-600 text-white"
+          : "bg-muted text-muted-foreground";
+  return (
+    <span
+      className={`inline-flex items-center justify-center w-7 h-5 rounded text-[11px] font-bold shrink-0 ${bg}`}
+    >
+      {rank}
+    </span>
+  );
+}
+
 function RankChange({ change }: { change: number }) {
   if (change > 0) {
-    return <span className="text-emerald-500 font-semibold text-xs">+{change}</span>;
+    return (
+      <span className="inline-flex items-center gap-0.5 text-emerald-500 font-bold text-xs">
+        <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor">
+          <path d="M5 1L9 6H1L5 1Z" />
+        </svg>
+        {change}
+      </span>
+    );
   }
   if (change < 0) {
-    return <span className="text-red-500 font-semibold text-xs">{change}</span>;
+    return (
+      <span className="inline-flex items-center gap-0.5 text-red-500 font-bold text-xs">
+        <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor">
+          <path d="M5 9L1 4H9L5 9Z" />
+        </svg>
+        {Math.abs(change)}
+      </span>
+    );
   }
   return <span className="text-muted-foreground text-xs">-</span>;
 }
@@ -48,136 +82,163 @@ function WorkLink({
   return <>{children}</>;
 }
 
-function ShareBar({ pct }: { pct: number }) {
+function ShareBar({ pct, color }: { pct: number; color: string }) {
   return (
     <div className="flex items-center gap-2 flex-1">
       <div className="flex-1 h-2 bg-muted rounded-full overflow-hidden">
         <div
-          className="h-full bg-primary/70 rounded-full transition-all"
-          style={{ width: `${Math.min(pct, 100)}%` }}
+          className="h-full rounded-full transition-all duration-500"
+          style={{ width: `${Math.min(pct, 100)}%`, backgroundColor: color }}
         />
       </div>
-      <span className="text-xs text-muted-foreground w-9 text-right">{pct}%</span>
+      <span className="text-xs text-muted-foreground w-10 text-right font-mono">
+        {pct}%
+      </span>
     </div>
   );
 }
 
-function formatDate(dateStr: string): string {
-  const parts = dateStr.split("-");
-  if (parts.length === 3) {
-    return `${parseInt(parts[1])}/${parseInt(parts[2])}`;
-  }
-  return dateStr;
+function StatNumber({ value, label }: { value: string | number; label: string }) {
+  return (
+    <div className="text-center">
+      <div className="text-xl font-bold">{value}</div>
+      <div className="text-[10px] text-white/70 uppercase tracking-wider">{label}</div>
+    </div>
+  );
 }
 
-export function TrendReportCard({ report }: { report?: TrendReport | null }) {
-  const [detailOpen, setDetailOpen] = useState(false);
+function SectionTitle({ icon, children }: { icon: string; children: React.ReactNode }) {
+  return (
+    <h4 className="flex items-center gap-1.5 text-xs font-bold text-muted-foreground uppercase tracking-wider mb-2 mt-0.5">
+      <span>{icon}</span>
+      {children}
+    </h4>
+  );
+}
 
-  if (!report) return null;
+// ─── Riverse Card ────────────────────────────────
 
-  const { riverse_summary, rising_works, new_entries, multi_platform, platform_riverse_share } =
-    report;
+function RiverseCard({ report }: { report: TrendReport }) {
+  const [open, setOpen] = useState(false);
+  const { riverse } = report;
 
   return (
-    <div className="bg-card border rounded-xl overflow-hidden mb-4">
-      {/* 타이틀 */}
-      <div className="px-4 pt-4 pb-2">
-        <h2 className="text-sm font-bold text-foreground flex items-center gap-1.5">
-          <span>📊</span>
-          JP 웹툰 트렌드 리포트
-          <span className="text-xs font-normal text-muted-foreground ml-1">
-            {report.data_date}
-          </span>
-        </h2>
-      </div>
-
-      {/* 해석적 요약문 (항상 표시) */}
-      <div className="px-4 pb-3">
-        <div className="text-sm text-foreground/85 leading-relaxed whitespace-pre-line">
-          {report.summary}
+    <div className="relative overflow-hidden rounded-xl border border-blue-200 dark:border-blue-900 bg-card">
+      {/* Gradient Header */}
+      <div className="bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600 px-4 py-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <div className="flex items-center gap-2 mb-1">
+              <span className="text-white/90 text-lg">🎯</span>
+              <h3 className="text-white font-bold text-sm tracking-wide">
+                RIVERSE 작품 동향
+              </h3>
+            </div>
+            <p className="text-blue-100/80 text-[11px]">
+              {report.data_date} 기준
+            </p>
+          </div>
+          <div className="flex gap-5">
+            <StatNumber value={riverse.total_in_rankings} label="랭킹 진입" />
+            <StatNumber value={riverse.active_platforms} label="플랫폼" />
+          </div>
         </div>
       </div>
 
-      {/* 상세 토글 */}
-      <div className="px-4 pb-3">
+      {/* Narrative Summary */}
+      <div className="px-4 py-3 border-b border-blue-100 dark:border-blue-900/50">
+        <p className="text-sm text-foreground/85 leading-relaxed">
+          {riverse.summary || "데이터를 분석 중입니다..."}
+        </p>
+      </div>
+
+      {/* Toggle */}
+      <div className="px-4 py-2">
         <button
-          onClick={() => setDetailOpen(!detailOpen)}
-          className="text-xs text-blue-500 hover:text-blue-600 hover:bg-muted/50 px-2.5 py-1.5 rounded-lg transition-colors cursor-pointer"
+          onClick={() => setOpen(!open)}
+          className="group flex items-center gap-1.5 text-xs font-medium text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 transition-colors cursor-pointer"
         >
-          {detailOpen ? "📋 상세 데이터 접기" : "📋 상세 데이터 보기"}
+          <span
+            className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-blue-50 dark:bg-blue-950 group-hover:bg-blue-100 dark:group-hover:bg-blue-900 transition-colors"
+          >
+            <svg
+              width="10"
+              height="10"
+              viewBox="0 0 10 10"
+              fill="currentColor"
+              className={`transition-transform duration-200 ${open ? "rotate-180" : ""}`}
+            >
+              <path d="M1 3.5L5 7.5L9 3.5" stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinecap="round" />
+            </svg>
+          </span>
+          {open ? "상세 데이터 접기" : "상세 데이터 보기"}
         </button>
       </div>
 
-      {/* 상세 데이터 패널 */}
-      {detailOpen && (
-        <div className="px-4 pb-4 space-y-5 border-t">
-          {/* Section 1: Riverse TOP */}
-          {riverse_summary.top_riverse.length > 0 && (
-            <section className="pt-4">
-              <h3 className="text-xs font-bold text-muted-foreground uppercase tracking-wider mb-2">
-                🏆 리버스 TOP 랭킹
-              </h3>
+      {/* Expandable Detail */}
+      {open && (
+        <div className="px-4 pb-4 space-y-4 border-t border-blue-100 dark:border-blue-900/50 pt-3 animate-in fade-in slide-in-from-top-2 duration-200">
+          {/* TOP Ranked */}
+          {riverse.top_ranked.length > 0 && (
+            <div>
+              <SectionTitle icon="🏆">리버스 TOP 랭킹</SectionTitle>
               <div className="space-y-1">
-                {riverse_summary.top_riverse.map((w, i) => (
+                {riverse.top_ranked.map((w, i) => (
                   <div
-                    key={`${w.platform}-${w.rank}-${i}`}
-                    className="flex items-center gap-2 text-sm"
+                    key={`rv-top-${i}`}
+                    className="flex items-center gap-2 text-sm py-0.5"
                   >
-                    <span className="text-muted-foreground w-9 text-right shrink-0 whitespace-nowrap">
-                      {w.rank}위
-                    </span>
+                    <RankBadge rank={w.rank} />
                     <WorkLink unifiedWorkId={w.unified_work_id}>
-                      <span className="font-medium truncate">{w.title_kr}</span>
+                      <span className="font-medium truncate">
+                        {w.title_kr || w.title}
+                      </span>
                     </WorkLink>
                     <PlatformBadge platform={w.platform} />
                     <RankChange change={w.rank_change} />
                   </div>
                 ))}
               </div>
-            </section>
+            </div>
           )}
 
-          {/* Section 2: Rising Works */}
-          {rising_works.length > 0 && (
-            <section>
-              <h3 className="text-xs font-bold text-muted-foreground uppercase tracking-wider mb-2">
-                🚀 급상승 작품
-              </h3>
+          {/* Rising */}
+          {riverse.rising.length > 0 && (
+            <div>
+              <SectionTitle icon="🚀">급상승 작품</SectionTitle>
               <div className="space-y-1">
-                {rising_works.map((w, i) => (
+                {riverse.rising.map((w, i) => (
                   <div
-                    key={`${w.platform}-${w.title}-${i}`}
-                    className="flex items-center gap-2 text-sm"
+                    key={`rv-rise-${i}`}
+                    className="flex items-center gap-2 text-sm py-0.5"
                   >
                     <WorkLink unifiedWorkId={w.unified_work_id}>
                       <span className="font-medium truncate">
                         {w.title_kr || w.title}
                       </span>
                     </WorkLink>
-                    <span className="text-muted-foreground text-xs shrink-0">
-                      {w.prev_rank}→{w.curr_rank}위
+                    <span className="text-muted-foreground text-xs shrink-0 font-mono">
+                      {w.prev_rank}→{w.curr_rank}
                     </span>
-                    <span className="text-emerald-500 font-semibold text-xs shrink-0">
-                      (+{w.change})
+                    <span className="text-emerald-500 font-bold text-xs shrink-0">
+                      +{w.change}
                     </span>
                     <PlatformBadge platform={w.platform} />
                   </div>
                 ))}
               </div>
-            </section>
+            </div>
           )}
 
-          {/* Section 3: New Entries */}
-          {new_entries.length > 0 && (
-            <section>
-              <h3 className="text-xs font-bold text-muted-foreground uppercase tracking-wider mb-2">
-                🆕 신규 진입
-              </h3>
+          {/* New Entries */}
+          {riverse.new_entries.length > 0 && (
+            <div>
+              <SectionTitle icon="🆕">신규 진입</SectionTitle>
               <div className="space-y-1">
-                {new_entries.map((w, i) => (
+                {riverse.new_entries.map((w, i) => (
                   <div
-                    key={`${w.platform}-${w.title}-${i}`}
-                    className="flex items-center gap-2 text-sm"
+                    key={`rv-new-${i}`}
+                    className="flex items-center gap-2 text-sm py-0.5"
                   >
                     <WorkLink unifiedWorkId={w.unified_work_id}>
                       <span className="font-medium truncate">
@@ -185,24 +246,22 @@ export function TrendReportCard({ report }: { report?: TrendReport | null }) {
                       </span>
                     </WorkLink>
                     <PlatformBadge platform={w.platform} />
-                    <span className="text-muted-foreground text-xs shrink-0">
+                    <span className="text-muted-foreground text-xs shrink-0 font-mono">
                       #{w.rank}
                     </span>
                   </div>
                 ))}
               </div>
-            </section>
+            </div>
           )}
 
-          {/* Section 4: Multi-platform */}
-          {multi_platform.length > 0 && (
-            <section>
-              <h3 className="text-xs font-bold text-muted-foreground uppercase tracking-wider mb-2">
-                🌐 멀티플랫폼 인기작
-              </h3>
+          {/* Multi Platform */}
+          {riverse.multi_platform.length > 0 && (
+            <div>
+              <SectionTitle icon="🌐">멀티플랫폼 인기작</SectionTitle>
               <div className="space-y-2">
-                {multi_platform.map((w, i) => (
-                  <div key={`multi-${i}`} className="text-sm">
+                {riverse.multi_platform.map((w, i) => (
+                  <div key={`rv-multi-${i}`} className="text-sm">
                     <div className="flex items-center gap-2 mb-0.5">
                       <WorkLink unifiedWorkId={w.unified_work_id}>
                         <span className="font-medium">{w.title_kr}</span>
@@ -218,42 +277,258 @@ export function TrendReportCard({ report }: { report?: TrendReport | null }) {
                           className="inline-flex items-center gap-0.5 text-xs text-muted-foreground"
                         >
                           <PlatformBadge platform={p.platform} />
-                          <span>#{p.rank}</span>
+                          <span className="font-mono">#{p.rank}</span>
                         </span>
                       ))}
                     </div>
                   </div>
                 ))}
               </div>
-            </section>
+            </div>
           )}
 
-          {/* Section 5: Platform Riverse Share */}
-          {platform_riverse_share.length > 0 && (
-            <section>
-              <h3 className="text-xs font-bold text-muted-foreground uppercase tracking-wider mb-2">
-                📈 플랫폼별 리버스 점유율
-              </h3>
+          {/* Platform Share */}
+          {riverse.platform_share.filter((p) => p.riverse_count > 0).length > 0 && (
+            <div>
+              <SectionTitle icon="📊">플랫폼별 리버스 점유율</SectionTitle>
               <div className="space-y-1.5">
-                {platform_riverse_share.filter((p) => p.riverse_count > 0).map((p) => (
-                  <div
-                    key={p.platform}
-                    className="flex items-center gap-2 text-sm"
-                  >
-                    <span className="w-20 shrink-0 truncate text-xs font-medium">
-                      {p.platform_name}
-                    </span>
-                    <span className="text-muted-foreground text-xs w-14 shrink-0">
-                      {p.riverse_count}/{p.total_ranked}
-                    </span>
-                    <ShareBar pct={p.share_pct} />
-                  </div>
-                ))}
+                {riverse.platform_share
+                  .filter((p) => p.riverse_count > 0)
+                  .map((p) => (
+                    <div
+                      key={p.platform}
+                      className="flex items-center gap-2 text-sm"
+                    >
+                      <span className="w-16 shrink-0 truncate text-xs font-medium">
+                        {p.platform_name}
+                      </span>
+                      <span className="text-muted-foreground text-xs w-12 shrink-0 font-mono">
+                        {p.riverse_count}/{p.total_ranked}
+                      </span>
+                      <ShareBar pct={p.share_pct} color="#6366f1" />
+                    </div>
+                  ))}
               </div>
-            </section>
+            </div>
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+// ─── Market Card ────────────────────────────────
+
+function MarketCard({ report }: { report: TrendReport }) {
+  const [open, setOpen] = useState(false);
+  const { market } = report;
+
+  return (
+    <div className="relative overflow-hidden rounded-xl border border-amber-200 dark:border-amber-900 bg-card">
+      {/* Gradient Header */}
+      <div className="bg-gradient-to-r from-amber-500 via-orange-500 to-red-500 px-4 py-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <div className="flex items-center gap-2 mb-1">
+              <span className="text-white/90 text-lg">🔥</span>
+              <h3 className="text-white font-bold text-sm tracking-wide">
+                일본 시장 전체 동향
+              </h3>
+            </div>
+            <p className="text-amber-100/80 text-[11px]">
+              {report.data_date} 기준 · 타사 작품 포함
+            </p>
+          </div>
+          <div className="flex gap-5">
+            <StatNumber value={market.top_rising.length} label="급상승" />
+            <StatNumber value={market.new_entries.length} label="신규 진입" />
+          </div>
+        </div>
+      </div>
+
+      {/* Narrative Summary */}
+      <div className="px-4 py-3 border-b border-amber-100 dark:border-amber-900/50">
+        <p className="text-sm text-foreground/85 leading-relaxed">
+          {market.summary || "데이터를 분석 중입니다..."}
+        </p>
+      </div>
+
+      {/* Toggle */}
+      <div className="px-4 py-2">
+        <button
+          onClick={() => setOpen(!open)}
+          className="group flex items-center gap-1.5 text-xs font-medium text-amber-600 dark:text-amber-400 hover:text-amber-700 dark:hover:text-amber-300 transition-colors cursor-pointer"
+        >
+          <span
+            className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-amber-50 dark:bg-amber-950 group-hover:bg-amber-100 dark:group-hover:bg-amber-900 transition-colors"
+          >
+            <svg
+              width="10"
+              height="10"
+              viewBox="0 0 10 10"
+              fill="currentColor"
+              className={`transition-transform duration-200 ${open ? "rotate-180" : ""}`}
+            >
+              <path d="M1 3.5L5 7.5L9 3.5" stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinecap="round" />
+            </svg>
+          </span>
+          {open ? "상세 데이터 접기" : "상세 데이터 보기"}
+        </button>
+      </div>
+
+      {/* Expandable Detail */}
+      {open && (
+        <div className="px-4 pb-4 space-y-4 border-t border-amber-100 dark:border-amber-900/50 pt-3 animate-in fade-in slide-in-from-top-2 duration-200">
+          {/* Top 1 Per Platform */}
+          {market.top1_works.length > 0 && (
+            <div>
+              <SectionTitle icon="👑">플랫폼별 1위</SectionTitle>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                {market.top1_works.map((w, i) => (
+                  <div
+                    key={`mk-top1-${i}`}
+                    className="flex items-center gap-2 text-sm py-1 px-2 rounded-lg bg-muted/40"
+                  >
+                    <PlatformBadge platform={w.platform} />
+                    <WorkLink unifiedWorkId={w.unified_work_id}>
+                      <span className="font-medium truncate text-xs">
+                        {w.title_kr || w.title}
+                      </span>
+                    </WorkLink>
+                    {w.is_riverse && (
+                      <span className="text-[9px] px-1 py-0.5 rounded bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 font-semibold shrink-0">
+                        RV
+                      </span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Rising */}
+          {market.top_rising.length > 0 && (
+            <div>
+              <SectionTitle icon="🚀">급상승 TOP</SectionTitle>
+              <div className="space-y-1">
+                {market.top_rising.map((w, i) => (
+                  <div
+                    key={`mk-rise-${i}`}
+                    className="flex items-center gap-2 text-sm py-0.5"
+                  >
+                    <WorkLink unifiedWorkId={w.unified_work_id}>
+                      <span className="font-medium truncate">
+                        {w.title_kr || w.title}
+                      </span>
+                    </WorkLink>
+                    <span className="text-muted-foreground text-xs shrink-0 font-mono">
+                      {w.prev_rank}→{w.curr_rank}
+                    </span>
+                    <span className="text-emerald-500 font-bold text-xs shrink-0">
+                      +{w.change}
+                    </span>
+                    <PlatformBadge platform={w.platform} />
+                    {w.is_riverse && (
+                      <span className="text-[9px] px-1 py-0.5 rounded bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 font-semibold shrink-0">
+                        RV
+                      </span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* New Entries */}
+          {market.new_entries.length > 0 && (
+            <div>
+              <SectionTitle icon="🆕">신규 진입</SectionTitle>
+              <div className="space-y-1">
+                {market.new_entries.map((w, i) => (
+                  <div
+                    key={`mk-new-${i}`}
+                    className="flex items-center gap-2 text-sm py-0.5"
+                  >
+                    <WorkLink unifiedWorkId={w.unified_work_id}>
+                      <span className="font-medium truncate">
+                        {w.title_kr || w.title}
+                      </span>
+                    </WorkLink>
+                    <PlatformBadge platform={w.platform} />
+                    <span className="text-muted-foreground text-xs shrink-0 font-mono">
+                      #{w.rank}
+                    </span>
+                    {w.is_riverse && (
+                      <span className="text-[9px] px-1 py-0.5 rounded bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 font-semibold shrink-0">
+                        RV
+                      </span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Multi Platform (non-riverse) */}
+          {market.multi_platform.length > 0 && (
+            <div>
+              <SectionTitle icon="🌐">타사 멀티플랫폼 히트</SectionTitle>
+              <div className="space-y-2">
+                {market.multi_platform.map((w, i) => (
+                  <div key={`mk-multi-${i}`} className="text-sm">
+                    <div className="flex items-center gap-2 mb-0.5">
+                      <WorkLink unifiedWorkId={w.unified_work_id}>
+                        <span className="font-medium">{w.title_kr}</span>
+                      </WorkLink>
+                      <span className="text-muted-foreground text-xs">
+                        ({w.platform_count}개 플랫폼)
+                      </span>
+                    </div>
+                    <div className="flex flex-wrap gap-1 ml-2">
+                      {w.platforms.map((p) => (
+                        <span
+                          key={p.platform}
+                          className="inline-flex items-center gap-0.5 text-xs text-muted-foreground"
+                        >
+                          <PlatformBadge platform={p.platform} />
+                          <span className="font-mono">#{p.rank}</span>
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Main Export ────────────────────────────────
+
+export function TrendReportCard({ report }: { report?: TrendReport | null }) {
+  if (!report) return null;
+
+  return (
+    <div className="space-y-3">
+      {/* Section Header */}
+      <div className="flex items-center gap-2">
+        <h2 className="text-sm font-bold text-foreground flex items-center gap-1.5">
+          <span>📊</span>
+          JP 웹툰 트렌드 리포트
+        </h2>
+        <span className="text-[11px] text-muted-foreground">
+          {report.data_date} vs {report.prev_date}
+        </span>
+      </div>
+
+      {/* Two cards side by side on desktop, stacked on mobile */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+        <RiverseCard report={report} />
+        <MarketCard report={report} />
+      </div>
     </div>
   );
 }
