@@ -98,15 +98,6 @@ function ShareBar({ pct, color }: { pct: number; color: string }) {
   );
 }
 
-function StatNumber({ value, label }: { value: string | number; label: string }) {
-  return (
-    <div className="text-center">
-      <div className="text-xl font-bold">{value}</div>
-      <div className="text-[10px] text-white/70 uppercase tracking-wider">{label}</div>
-    </div>
-  );
-}
-
 function SectionTitle({ icon, children }: { icon: string; children: React.ReactNode }) {
   return (
     <h4 className="flex items-center gap-1.5 text-xs font-bold text-muted-foreground uppercase tracking-wider mb-2 mt-0.5">
@@ -123,26 +114,12 @@ function RiverseCard({ report }: { report: TrendReport }) {
   const { riverse } = report;
 
   return (
-    <div className="relative overflow-hidden rounded-xl border border-blue-200 dark:border-blue-900 bg-card">
-      {/* Gradient Header */}
-      <div className="bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600 px-4 py-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <div className="flex items-center gap-2 mb-1">
-              <span className="text-white/90 text-lg">🎯</span>
-              <h3 className="text-white font-bold text-sm tracking-wide">
-                RIVERSE 작품 동향
-              </h3>
-            </div>
-            <p className="text-blue-100/80 text-[11px]">
-              {report.data_date} 기준
-            </p>
-          </div>
-          <div className="flex gap-5">
-            <StatNumber value={riverse.total_in_rankings} label="랭킹 진입" />
-            <StatNumber value={riverse.active_platforms} label="플랫폼" />
-          </div>
-        </div>
+    <div className="relative overflow-hidden rounded-xl border border-blue-200 dark:border-blue-800/40 bg-card">
+      {/* Header — 파란 배경, 흰 글씨 */}
+      <div className="bg-blue-600 px-4 py-3">
+        <h3 className="text-white font-bold text-sm tracking-wide">
+          리버스 작품 동향
+        </h3>
       </div>
 
       {/* Narrative Summary */}
@@ -324,30 +301,16 @@ function MarketCard({ report }: { report: TrendReport }) {
   const { market } = report;
 
   return (
-    <div className="relative overflow-hidden rounded-xl border border-amber-200 dark:border-amber-900 bg-card">
-      {/* Gradient Header */}
-      <div className="bg-gradient-to-r from-amber-500 via-orange-500 to-red-500 px-4 py-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <div className="flex items-center gap-2 mb-1">
-              <span className="text-white/90 text-lg">🔥</span>
-              <h3 className="text-white font-bold text-sm tracking-wide">
-                일본 시장 전체 동향
-              </h3>
-            </div>
-            <p className="text-amber-100/80 text-[11px]">
-              {report.data_date} 기준 · 타사 작품 포함
-            </p>
-          </div>
-          <div className="flex gap-5">
-            <StatNumber value={market.top_rising.length} label="급상승" />
-            <StatNumber value={market.new_entries.length} label="신규 진입" />
-          </div>
-        </div>
+    <div className="relative overflow-hidden rounded-xl border border-blue-200 dark:border-blue-800/40 bg-card">
+      {/* Header — 흰 배경, 파란 글씨 */}
+      <div className="bg-white dark:bg-card border-b border-blue-200 dark:border-blue-800/40 px-4 py-3">
+        <h3 className="text-blue-600 dark:text-blue-400 font-bold text-sm tracking-wide">
+          타사 · 시장 전체 동향
+        </h3>
       </div>
 
       {/* Narrative Summary */}
-      <div className="px-4 py-3 border-b border-amber-100 dark:border-amber-900/50">
+      <div className="px-4 py-3 border-b border-blue-100 dark:border-blue-900/50">
         <p className="text-[13px] text-foreground/85 leading-6 whitespace-pre-line">
           {market.summary || "데이터를 분석 중입니다..."}
         </p>
@@ -357,10 +320,10 @@ function MarketCard({ report }: { report: TrendReport }) {
       <div className="px-4 py-2">
         <button
           onClick={() => setOpen(!open)}
-          className="group flex items-center gap-1.5 text-xs font-medium text-amber-600 dark:text-amber-400 hover:text-amber-700 dark:hover:text-amber-300 transition-colors cursor-pointer"
+          className="group flex items-center gap-1.5 text-xs font-medium text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 transition-colors cursor-pointer"
         >
           <span
-            className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-amber-50 dark:bg-amber-950 group-hover:bg-amber-100 dark:group-hover:bg-amber-900 transition-colors"
+            className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-blue-50 dark:bg-blue-950 group-hover:bg-blue-100 dark:group-hover:bg-blue-900 transition-colors"
           >
             <svg
               width="10"
@@ -378,7 +341,7 @@ function MarketCard({ report }: { report: TrendReport }) {
 
       {/* Expandable Detail */}
       {open && (
-        <div className="px-4 pb-4 space-y-4 border-t border-amber-100 dark:border-amber-900/50 pt-3 animate-in fade-in slide-in-from-top-2 duration-200">
+        <div className="px-4 pb-4 space-y-4 border-t border-blue-100 dark:border-blue-900/50 pt-3 animate-in fade-in slide-in-from-top-2 duration-200">
           {/* Top 1 Per Platform */}
           {market.top1_works.length > 0 && (
             <div>
