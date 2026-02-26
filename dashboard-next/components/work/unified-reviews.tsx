@@ -24,14 +24,34 @@ export function UnifiedReviews({
 }: UnifiedReviewsProps) {
   const [allReviews, setAllReviews] = useState<ReviewWithPlatform[]>(initialReviews);
   const [sortMode, setSortMode] = useState<SortMode>("newest");
+  const [platformFilter, setPlatformFilter] = useState<string>("all");
   const [visibleCount, setVisibleCount] = useState(REVIEWS_PER_PAGE);
   const [loadingMore, setLoadingMore] = useState(false);
+
+  // 플랫폼별 리뷰 수 집계
+  const platformCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const r of allReviews) {
+      if (r.platform) {
+        counts.set(r.platform, (counts.get(r.platform) || 0) + 1);
+      }
+    }
+    return counts;
+  }, [allReviews]);
+
+  const availablePlatforms = useMemo(() => {
+    return Array.from(platformCounts.keys()).sort();
+  }, [platformCounts]);
 
   const hasMoreOnServer = allReviews.length < totalReviews;
   const hasMoreToShow = visibleCount < allReviews.length || hasMoreOnServer;
 
   const sorted = useMemo(() => {
-    const copy = [...allReviews];
+    let copy = [...allReviews];
+    // 플랫폼 필터 적용
+    if (platformFilter !== "all") {
+      copy = copy.filter((r) => r.platform === platformFilter);
+    }
     switch (sortMode) {
       case "newest":
         return copy.sort((a, b) => (b.reviewed_at || "").localeCompare(a.reviewed_at || ""));
@@ -46,7 +66,7 @@ export function UnifiedReviews({
       default:
         return copy;
     }
-  }, [allReviews, sortMode]);
+  }, [allReviews, sortMode, platformFilter]);
 
   // 서버에서 추가 리뷰 로드
   const loadMoreFromServer = useCallback(async () => {
@@ -115,6 +135,40 @@ export function UnifiedReviews({
         )}
       </div>
 
+      {/* 플랫폼 필터 */}
+      {availablePlatforms.length > 1 && (
+        <div className="flex flex-wrap gap-1 mb-4">
+          <button
+            onClick={() => { setPlatformFilter("all"); setVisibleCount(REVIEWS_PER_PAGE); }}
+            className={`px-2.5 py-1 text-xs rounded-full transition-colors cursor-pointer ${
+              platformFilter === "all"
+                ? "bg-foreground text-background font-medium"
+                : "bg-muted text-muted-foreground hover:bg-muted/80"
+            }`}
+          >
+            전체 ({totalReviews.toLocaleString()})
+          </button>
+          {availablePlatforms.map((pid) => {
+            const pInfo = getPlatformById(pid);
+            const count = platformCounts.get(pid) || 0;
+            return (
+              <button
+                key={pid}
+                onClick={() => { setPlatformFilter(pid); setVisibleCount(REVIEWS_PER_PAGE); }}
+                className={`px-2.5 py-1 text-xs rounded-full transition-colors cursor-pointer border ${
+                  platformFilter === pid
+                    ? "text-white font-medium border-transparent"
+                    : "text-muted-foreground hover:opacity-80 border-border"
+                }`}
+                style={platformFilter === pid ? { backgroundColor: pInfo?.color || "#666" } : undefined}
+              >
+                {pInfo?.name || pid} ({count})
+              </button>
+            );
+          })}
+        </div>
+      )}
+
       {/* 평점 통계 */}
       {reviewStats.avg_rating != null && (
         <div className="mb-4 p-3 bg-muted rounded-lg">
@@ -151,7 +205,11 @@ export function UnifiedReviews({
       {allReviews.length > 0 ? (
         <>
           <div className="text-xs text-muted-foreground mb-3">
-            총 {totalReviews.toLocaleString()}건의 리뷰 (로드됨: {allReviews.length.toLocaleString()}건)
+            {platformFilter === "all" ? (
+              <>총 {totalReviews.toLocaleString()}건의 리뷰 (로드됨: {allReviews.length.toLocaleString()}건)</>
+            ) : (
+              <>{getPlatformById(platformFilter)?.name || platformFilter} 리뷰 {sorted.length.toLocaleString()}건</>
+            )}
           </div>
 
           {/* 리뷰 목록 */}

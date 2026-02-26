@@ -162,22 +162,72 @@ class DetailScraper:
             () => {
                 const result = {};
 
-                // 텍스트에서 라벨-값 쌍 추출
-                const body = document.body.innerText;
+                // ─── 줄거리 (description) ───
+                // 1) CSS 셀렉터로 시도
+                const summaryEl = document.querySelector('.MdMNG03Summary .mdMNG03Txt, .MdMNG03Summary p');
+                if (summaryEl && summaryEl.textContent.trim().length > 10) {
+                    result.description = summaryEl.textContent.trim();
+                }
+                // 2) fallback: meta description
+                if (!result.description) {
+                    const metaDesc = document.querySelector('meta[name="description"]');
+                    if (metaDesc) {
+                        const content = metaDesc.getAttribute('content') || '';
+                        // "【N話無料】" 접두사 제거
+                        const cleaned = content.replace(/^【[^】]*】/, '').trim();
+                        if (cleaned.length > 10) result.description = cleaned;
+                    }
+                }
 
-                // 작가
-                const authorMatch = body.match(/作者[\\s\\n]*([^\\n]+)/);
-                if (authorMatch) result.author = authorMatch[1].trim();
+                // ─── 작가 정보 (역할별 분리) ───
+                // 구조화된 DOM에서 추출 시도: dt.mdMNG04Dt02 + dd.mdMNG04Dd02
+                const authorDd = document.querySelector('.mdMNG04Dd02, dd.mdMNG04Dd02');
+                if (authorDd) {
+                    // 링크된 작가명 추출 (역할 정보 포함)
+                    const authorLinks = authorDd.querySelectorAll('a[href*="author_id"]');
+                    if (authorLinks.length > 0) {
+                        // 전체 텍스트에서 역할 파싱: "WAN.Z(redice studio)(脚色)・Maslow(原作)・swingbat(作画)"
+                        const fullText = authorDd.textContent.trim();
+                        result.author = fullText;
+                    }
+                }
 
-                // 출판사
-                const pubMatch = body.match(/出版社[\\s\\n]*([^\\n]+)/);
-                if (pubMatch) result.publisher = pubMatch[1].trim();
+                // fallback: body 텍스트에서 추출
+                if (!result.author) {
+                    const body = document.body.innerText;
+                    const authorMatch = body.match(/作者[\\s\\n]*([^\\n]+)/);
+                    if (authorMatch) result.author = authorMatch[1].trim();
+                }
 
-                // 掲載誌 (레이블/잡지)
-                const magMatch = body.match(/掲載誌[\\s\\n]*([^\\n]+)/);
-                if (magMatch) result.label = magMatch[1].trim();
+                // ─── 출판사 ───
+                const pubDd = document.querySelector('.mdMNG04Dd03, dd.mdMNG04Dd03');
+                if (pubDd && pubDd.textContent.trim()) {
+                    result.publisher = pubDd.textContent.trim();
+                }
+                if (!result.publisher) {
+                    const body = document.body.innerText;
+                    const pubMatch = body.match(/出版社[\\s\\n]*([^\\n]+)/);
+                    if (pubMatch) result.publisher = pubMatch[1].trim();
+                }
 
-                // お気に入り (즐겨찾기 수)
+                // ─── 掲載誌 (레이블/잡지) ───
+                const magDd = document.querySelector('.mdMNG04Dd04, dd.mdMNG04Dd04');
+                if (magDd && magDd.textContent.trim()) {
+                    result.label = magDd.textContent.trim();
+                }
+                if (!result.label) {
+                    const body = document.body.innerText;
+                    const magMatch = body.match(/掲載誌[\\s\\n]*([^\\n]+)/);
+                    if (magMatch) result.label = magMatch[1].trim();
+                }
+
+                // ─── ジャンル (장르) ───
+                const genreDd = document.querySelector('.mdMNG04Dd01, dd.mdMNG04Dd01');
+                if (genreDd && genreDd.textContent.trim()) {
+                    result.genre = genreDd.textContent.trim();
+                }
+
+                // ─── お気に入り (즐겨찾기 수) ───
                 const favElements = document.querySelectorAll('[class*="Fav"], [class*="fav"]');
                 for (const el of favElements) {
                     const numMatch = el.textContent.replace(/,/g, '').match(/([0-9]+)/);
@@ -189,6 +239,7 @@ class DetailScraper:
 
                 // 즐겨찾기가 아직 없으면 본문에서 숫자 큰 것 찾기
                 if (!result.favorites) {
+                    const body = document.body.innerText;
                     const numPattern = body.match(/([0-9,]{4,})[\\s]*人?/);
                     if (numPattern) {
                         const num = parseInt(numPattern[1].replace(/,/g, ''));

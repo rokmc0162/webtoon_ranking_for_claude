@@ -49,6 +49,7 @@ export async function GET(request: NextRequest) {
         OR uw.title_canonical ILIKE ${searchPattern}
         OR uw.title_en ILIKE ${searchPattern}
         OR uw.author ILIKE ${searchPattern}
+        OR uw.publisher ILIKE ${searchPattern}
       GROUP BY uw.id
       ORDER BY
         -- 리버스 우선

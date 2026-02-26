@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { RiverseBadge } from "@/components/riverse-badge";
 import { isJapanesePlatform } from "@/lib/constants";
 import type { UnifiedWorkMetadata, PlatformWorkEntry } from "@/lib/types";
@@ -53,7 +54,6 @@ export function UnifiedHero({ metadata, platforms }: UnifiedHeroProps) {
 
   const tags = metadata.tags ? parseTags(metadata.tags) : [];
   const hasDescription = metadata.description && metadata.description.length > 0;
-  const descriptionLong = hasDescription && metadata.description.length > 120;
 
   // 최고 순위 (전 플랫폼 통합)
   const bestRank = platforms
@@ -140,10 +140,26 @@ export function UnifiedHero({ metadata, platforms }: UnifiedHeroProps) {
             ))}
           </div>
 
-          {/* 메타 정보 라인 */}
+          {/* 메타 정보 라인 — 클릭→검색 링크 */}
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-2 text-sm text-muted-foreground">
-            {metadata.author && <span>✍️ {metadata.author}</span>}
-            {metadata.publisher && <span>📚 {metadata.publisher}</span>}
+            {metadata.author && (
+              <Link
+                href={`/search?q=${encodeURIComponent(metadata.author)}`}
+                className="hover:text-foreground transition-colors"
+                title={`"${metadata.author}" 관련 작품 검색`}
+              >
+                ✍️ {metadata.author}
+              </Link>
+            )}
+            {metadata.publisher && (
+              <Link
+                href={`/search?q=${encodeURIComponent(metadata.publisher)}`}
+                className="hover:text-foreground transition-colors"
+                title={`"${metadata.publisher}" 관련 작품 검색`}
+              >
+                📚 {metadata.publisher}
+              </Link>
+            )}
             {(metadata.genre_kr || metadata.genre) && (
               <span className="bg-muted px-2 py-0.5 rounded-full text-xs">
                 {metadata.genre_kr || metadata.genre}
@@ -182,31 +198,26 @@ export function UnifiedHero({ metadata, platforms }: UnifiedHeroProps) {
         </div>
       </div>
 
-      {/* 설명 */}
+      {/* 줄거리 — 버튼 클릭으로 펼치기 (로딩 시간 절약) */}
       {hasDescription && (
-        <div className="mt-4 text-sm text-foreground/80 leading-relaxed">
-          {descriptionLong && !descExpanded ? (
-            <>
-              {metadata.description.slice(0, 120)}...
-              <button
-                onClick={() => setDescExpanded(true)}
-                className="ml-1 text-xs text-blue-500 hover:underline cursor-pointer"
-              >
-                더보기
-              </button>
-            </>
+        <div className="mt-4">
+          {!descExpanded ? (
+            <button
+              onClick={() => setDescExpanded(true)}
+              className="text-sm text-blue-500 hover:text-blue-600 hover:bg-muted/50 px-3 py-1.5 rounded-lg transition-colors cursor-pointer"
+            >
+              📖 줄거리 보기
+            </button>
           ) : (
-            <>
+            <div className="text-sm text-foreground/80 leading-relaxed bg-muted/30 rounded-lg p-3">
               {metadata.description}
-              {descriptionLong && (
-                <button
-                  onClick={() => setDescExpanded(false)}
-                  className="ml-1 text-xs text-blue-500 hover:underline cursor-pointer"
-                >
-                  접기
-                </button>
-              )}
-            </>
+              <button
+                onClick={() => setDescExpanded(false)}
+                className="ml-2 text-xs text-blue-500 hover:underline cursor-pointer"
+              >
+                접기
+              </button>
+            </div>
           )}
         </div>
       )}

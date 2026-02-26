@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
+import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { Header } from "@/components/header";
 import { RiverseBadge } from "@/components/riverse-badge";
@@ -30,18 +31,20 @@ interface SearchResult {
 }
 
 export function SearchClient() {
-  const [query, setQuery] = useState("");
+  const searchParams = useSearchParams();
+  const initialQ = searchParams.get("q") || "";
+  const [query, setQuery] = useState(initialQ);
   const [results, setResults] = useState<SearchResult[]>([]);
   const [loading, setLoading] = useState(false);
   const [searched, setSearched] = useState(false);
   const [total, setTotal] = useState(0);
 
-  const handleSearch = useCallback(async () => {
-    if (query.length < 2) return;
+  const doSearch = useCallback(async (q: string) => {
+    if (q.length < 2) return;
     setLoading(true);
     setSearched(true);
     try {
-      const res = await fetch(`/api/search?q=${encodeURIComponent(query)}`);
+      const res = await fetch(`/api/search?q=${encodeURIComponent(q)}`);
       const data = await res.json();
       setResults(data.results || []);
       setTotal(data.total || 0);
@@ -51,7 +54,20 @@ export function SearchClient() {
     } finally {
       setLoading(false);
     }
-  }, [query]);
+  }, []);
+
+  const handleSearch = useCallback(async () => {
+    await doSearch(query);
+  }, [query, doSearch]);
+
+  // URL ?q= 파라미터로 들어온 경우 자동 검색
+  useEffect(() => {
+    if (initialQ && initialQ.length >= 2) {
+      setQuery(initialQ);
+      doSearch(initialQ);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialQ]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter") handleSearch();
@@ -70,7 +86,7 @@ export function SearchClient() {
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="작품명 또는 작가명으로 검색 (한국어 / 일본어 / 영어)..."
+              placeholder="작품명 / 작가명 / 출판사로 검색 (한/일/영)..."
               className="flex-1 px-4 py-2.5 rounded-lg border border-border bg-card text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
               autoFocus
             />
