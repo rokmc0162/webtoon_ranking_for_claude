@@ -229,10 +229,14 @@ ${pName} 내 위치와 랭킹 데이터 기반 분석. 크로스 플랫폼 현�
     });
 
     // web_search 사용 시 content 블록에 텍스트와 tool_use가 섞여 나옴
-    const text = response.content
+    let text = response.content
       .filter((block): block is Anthropic.TextBlock => block.type === "text")
       .map((block) => block.text)
       .join("");
+
+    // "1." 이전 서론 제거 (웹 검색 과정 설명 등)
+    const sectionIdx = text.indexOf("1.");
+    if (sectionIdx > 0) text = text.slice(sectionIdx);
 
     const dataSummary = {
       rank_best: rankBest,
