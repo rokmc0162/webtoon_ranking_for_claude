@@ -458,6 +458,7 @@ def get_works_needing_detail(max_count: int = 50, riverse_only: bool = False) ->
     상세 메타데이터가 필요한 작품 목록 조회
     - detail_scraped_at이 NULL이거나 7일 이상 지난 작품
     - 최근 랭킹 등장 순으로 우선
+    - 상세 크롤러 지원 플랫폼만: piccoma, linemanga, mechacomic, cmoa
 
     Args:
         max_count: 최대 작품 수
@@ -466,6 +467,8 @@ def get_works_needing_detail(max_count: int = 50, riverse_only: bool = False) ->
     Returns:
         [{platform, title, url}, ...]
     """
+    SUPPORTED_PLATFORMS = ('piccoma', 'linemanga', 'mechacomic', 'cmoa')
+
     conn = get_db_connection()
     cursor = conn.cursor()
     if riverse_only:
@@ -475,21 +478,22 @@ def get_works_needing_detail(max_count: int = 50, riverse_only: bool = False) ->
             FROM works
             WHERE url IS NOT NULL AND url != ''
               AND is_riverse = TRUE
-              AND platform != 'asura'
+              AND platform IN %s
             ORDER BY last_seen_date DESC NULLS LAST
             LIMIT %s
-        ''', (max_count,))
+        ''', (SUPPORTED_PLATFORMS, max_count))
     else:
         cursor.execute('''
             SELECT platform, title, url
             FROM works
             WHERE url IS NOT NULL AND url != ''
+              AND platform IN %s
               AND (detail_scraped_at IS NULL
                    OR detail_scraped_at < NOW() - INTERVAL '7 days')
             ORDER BY last_seen_date DESC NULLS LAST,
                      detail_scraped_at ASC NULLS FIRST
             LIMIT %s
-        ''', (max_count,))
+        ''', (SUPPORTED_PLATFORMS, max_count))
     result = [{'platform': r[0], 'title': r[1], 'url': r[2]} for r in cursor.fetchall()]
     conn.close()
     return result
