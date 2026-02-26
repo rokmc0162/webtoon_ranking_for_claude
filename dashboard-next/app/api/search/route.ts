@@ -2,168 +2,101 @@ import { NextRequest, NextResponse } from "next/server";
 import { sql } from "@/lib/supabase";
 
 /**
- * 작품 검색 API — 크로스 플랫폼 랭킹 조회
+ * 작품 검색 API — 전체 작품 DB에서 검색
  *
- * GET /api/search?q=작품명&date=2026-02-25
+ * GET /api/search?q=작품명
  *
- * 작품명으로 검색하여 각 플랫폼별 랭킹 정보를 반환합니다.
- * - works 테이블에서 작품 메타데이터 검색
- * - rankings 테이블에서 해당 날짜의 랭킹 정보 조회
+ * unified_works + works에서 한/일/영 제목으로 검색
+ * 클릭 시 /work/[id] 통합 분석 페이지로 이동
  */
 export async function GET(request: NextRequest) {
   const { searchParams } = request.nextUrl;
   const query = searchParams.get("q") || "";
-  const date = searchParams.get("date") || "";
 
   if (!query || query.length < 2) {
     return NextResponse.json({ error: "검색어는 2자 이상 필요합니다" }, { status: 400 });
   }
 
   try {
-    // 날짜 미지정 시 최신 날짜 사용
-    let targetDate = date;
-    if (!targetDate) {
-      const dateRows = await sql`SELECT DISTINCT date::text as date FROM rankings ORDER BY date DESC LIMIT 1`;
-      targetDate = dateRows.length > 0 ? String(dateRows[0].date) : "";
-    }
-
-    if (!targetDate) {
-      return NextResponse.json({ results: [], date: "" });
-    }
-
-    // 작품 검색 (ILIKE + 한국어 제목도 검색)
     const searchPattern = `%${query}%`;
 
-    // 1. rankings에서 해당 날짜의 매칭 작품 + 랭킹 정보 조회
-    //    sub_category: 일반 플랫폼은 '' (종합), Asura는 'all'
-    const rankingRows = await sql`
+    // unified_works에서 한/일/영 제목 + 작가명으로 검색
+    // works JOIN으로 플랫폼별 정보도 함께 가져옴
+    const rows = await sql`
       SELECT
-        r.platform,
-        r.title,
-        r.title_kr,
-        r.rank::int as rank,
-        r.genre,
-        r.genre_kr,
-        r.url,
-        r.is_riverse,
-        COALESCE(r.sub_category, '') as sub_category,
-        w.thumbnail_url
-      FROM rankings r
-      LEFT JOIN works w ON w.platform = r.platform AND w.title = r.title
-      WHERE r.date = ${targetDate}
-        AND (COALESCE(r.sub_category, '') = '' OR r.sub_category = 'all')
-        AND (
-          r.title ILIKE ${searchPattern}
-          OR r.title_kr ILIKE ${searchPattern}
-        )
-      ORDER BY r.platform, r.rank
-    `;
-
-    // 1-2. unified_works에서도 영문 제목으로 검색 → works 연결
-    const unifiedRows = await sql`
-      SELECT w.platform, w.title, w.title_kr, w.url, w.is_riverse,
-             w.thumbnail_url, w.best_rank
+        uw.id,
+        uw.title_kr,
+        uw.title_en,
+        uw.title_canonical,
+        uw.author,
+        uw.genre_kr,
+        uw.is_riverse,
+        uw.thumbnail_url AS uw_thumb,
+        json_agg(json_build_object(
+          'platform', w.platform,
+          'title', w.title,
+          'best_rank', w.best_rank,
+          'rating', w.rating,
+          'review_count', w.review_count,
+          'thumbnail_url', w.thumbnail_url,
+          'last_seen_date', w.last_seen_date
+        ) ORDER BY w.platform) AS works
       FROM unified_works uw
-      JOIN works w ON w.unified_work_id = uw.id
-      WHERE uw.title_en ILIKE ${searchPattern}
-        AND NOT EXISTS (
-          SELECT 1 FROM rankings r2
-          WHERE r2.platform = w.platform AND r2.title = w.title
-            AND r2.date = ${targetDate}
-        )
+      LEFT JOIN works w ON w.unified_work_id = uw.id
+      WHERE
+        uw.title_kr ILIKE ${searchPattern}
+        OR uw.title_canonical ILIKE ${searchPattern}
+        OR uw.title_en ILIKE ${searchPattern}
+        OR uw.author ILIKE ${searchPattern}
+      GROUP BY uw.id
+      ORDER BY
+        -- 리버스 우선
+        uw.is_riverse DESC,
+        -- 플랫폼 수 많은 순
+        COUNT(w.platform) DESC,
+        -- 이름 순
+        uw.title_kr
+      LIMIT 50
     `;
 
-    // 2. 결과를 작품별로 그룹핑
-    const titleMap = new Map<string, {
-      title: string;
-      title_kr: string | null;
-      thumbnail_url: string | null;
-      is_riverse: boolean;
-      platforms: Array<{
-        platform: string;
-        rank: number;
-        genre: string | null;
-        genre_kr: string | null;
-        url: string | null;
-      }>;
-    }>();
+    const results = rows.map((r) => ({
+      id: r.id,
+      title_kr: r.title_kr || "",
+      title_en: r.title_en || "",
+      title_canonical: r.title_canonical || "",
+      author: r.author || "",
+      genre_kr: r.genre_kr || "",
+      is_riverse: r.is_riverse ?? false,
+      thumbnail_url: r.uw_thumb || null,
+      works: (r.works || [])
+        .filter((w: Record<string, unknown>) => w.platform !== null)
+        .map((w: Record<string, unknown>) => ({
+          platform: String(w.platform),
+          title: String(w.title || ""),
+          best_rank: w.best_rank != null ? Number(w.best_rank) : null,
+          rating: w.rating != null ? Number(w.rating) : null,
+          review_count: w.review_count != null ? Number(w.review_count) : null,
+          thumbnail_url: w.thumbnail_url ? String(w.thumbnail_url) : null,
+          last_seen_date: w.last_seen_date ? String(w.last_seen_date) : null,
+        })),
+    }));
 
-    for (const row of rankingRows) {
-      // 같은 작품명을 키로 그룹핑 (대소문자 무시)
-      const normalizedTitle = String(row.title).toLowerCase();
-
-      if (!titleMap.has(normalizedTitle)) {
-        titleMap.set(normalizedTitle, {
-          title: String(row.title),
-          title_kr: row.title_kr ? String(row.title_kr) : null,
-          thumbnail_url: row.thumbnail_url ? String(row.thumbnail_url) : null,
-          is_riverse: Boolean(row.is_riverse),
-          platforms: [],
-        });
-      }
-
-      const entry = titleMap.get(normalizedTitle)!;
-      entry.platforms.push({
-        platform: String(row.platform),
-        rank: Number(row.rank),
-        genre: row.genre ? String(row.genre) : null,
-        genre_kr: row.genre_kr ? String(row.genre_kr) : null,
-        url: row.url ? String(row.url) : null,
-      });
-
-      // 한국어 제목이 없는 경우 업데이트
-      if (!entry.title_kr && row.title_kr) {
-        entry.title_kr = String(row.title_kr);
-      }
-      // 썸네일이 없는 경우 업데이트
-      if (!entry.thumbnail_url && row.thumbnail_url) {
-        entry.thumbnail_url = String(row.thumbnail_url);
-      }
-      // 리버스 여부 업데이트
-      if (row.is_riverse) {
-        entry.is_riverse = true;
+    // thumbnail_url 보정: unified_works에 없으면 works에서 가져옴
+    for (const r of results) {
+      if (!r.thumbnail_url && r.works.length > 0) {
+        const thumb = r.works.find((w: { thumbnail_url: string | null }) => w.thumbnail_url);
+        if (thumb) r.thumbnail_url = thumb.thumbnail_url;
       }
     }
-
-    // 2-2. unifiedRows (영문 검색 결과) 추가
-    for (const row of unifiedRows) {
-      const normalizedTitle = String(row.title).toLowerCase();
-      if (!titleMap.has(normalizedTitle)) {
-        titleMap.set(normalizedTitle, {
-          title: String(row.title),
-          title_kr: row.title_kr ? String(row.title_kr) : null,
-          thumbnail_url: row.thumbnail_url ? String(row.thumbnail_url) : null,
-          is_riverse: Boolean(row.is_riverse),
-          platforms: [],
-        });
-      }
-      const entry = titleMap.get(normalizedTitle)!;
-      entry.platforms.push({
-        platform: String(row.platform),
-        rank: row.best_rank ? Number(row.best_rank) : 999,
-        genre: null,
-        genre_kr: null,
-        url: row.url ? String(row.url) : null,
-      });
-    }
-
-    // 3. 결과 배열로 변환 (플랫폼 수 내림차순 정렬)
-    const results = Array.from(titleMap.values())
-      .sort((a, b) => {
-        // 플랫폼 수가 많은 순 → 최고 랭킹 순
-        if (b.platforms.length !== a.platforms.length) {
-          return b.platforms.length - a.platforms.length;
-        }
-        const bestA = Math.min(...a.platforms.map(p => p.rank));
-        const bestB = Math.min(...b.platforms.map(p => p.rank));
-        return bestA - bestB;
-      });
 
     return NextResponse.json({
       results,
-      date: targetDate,
       query,
       total: results.length,
+    }, {
+      headers: {
+        "Cache-Control": "public, s-maxage=300, stale-while-revalidate=600",
+      },
     });
   } catch (error) {
     console.error("Search error:", error);

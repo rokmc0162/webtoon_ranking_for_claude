@@ -5,47 +5,53 @@ import Link from "next/link";
 import { Header } from "@/components/header";
 import { RiverseBadge } from "@/components/riverse-badge";
 import { Separator } from "@/components/ui/separator";
-import { getPlatformById, PLATFORMS } from "@/lib/constants";
+import { getPlatformById } from "@/lib/constants";
+
+interface WorkEntry {
+  platform: string;
+  title: string;
+  best_rank: number | null;
+  rating: number | null;
+  review_count: number | null;
+  thumbnail_url: string | null;
+  last_seen_date: string | null;
+}
 
 interface SearchResult {
-  title: string;
-  title_kr: string | null;
-  thumbnail_url: string | null;
+  id: number;
+  title_kr: string;
+  title_en: string;
+  title_canonical: string;
+  author: string;
+  genre_kr: string;
   is_riverse: boolean;
-  platforms: Array<{
-    platform: string;
-    rank: number;
-    genre: string | null;
-    genre_kr: string | null;
-    url: string | null;
-  }>;
+  thumbnail_url: string | null;
+  works: WorkEntry[];
 }
 
-interface SearchClientProps {
-  latestDate: string;
-}
-
-export function SearchClient({ latestDate }: SearchClientProps) {
+export function SearchClient() {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<SearchResult[]>([]);
   const [loading, setLoading] = useState(false);
   const [searched, setSearched] = useState(false);
-  const [searchDate, setSearchDate] = useState(latestDate);
+  const [total, setTotal] = useState(0);
 
   const handleSearch = useCallback(async () => {
     if (query.length < 2) return;
     setLoading(true);
     setSearched(true);
     try {
-      const res = await fetch(`/api/search?q=${encodeURIComponent(query)}&date=${searchDate}`);
+      const res = await fetch(`/api/search?q=${encodeURIComponent(query)}`);
       const data = await res.json();
       setResults(data.results || []);
+      setTotal(data.total || 0);
     } catch {
       setResults([]);
+      setTotal(0);
     } finally {
       setLoading(false);
     }
-  }, [query, searchDate]);
+  }, [query]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter") handleSearch();
@@ -64,7 +70,7 @@ export function SearchClient({ latestDate }: SearchClientProps) {
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="작품명으로 검색 (일본어 또는 한국어)..."
+              placeholder="작품명 또는 작가명으로 검색 (한국어 / 일본어 / 영어)..."
               className="flex-1 px-4 py-2.5 rounded-lg border border-border bg-card text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
               autoFocus
             />
@@ -77,7 +83,7 @@ export function SearchClient({ latestDate }: SearchClientProps) {
             </button>
           </div>
           <p className="text-xs text-muted-foreground mt-1.5">
-            기준일: {searchDate} | 종합 랭킹에서 검색됩니다
+            전체 {total > 0 ? `${total}개 작품 발견` : "작품 DB에서 검색합니다"}
           </p>
         </div>
 
@@ -95,8 +101,8 @@ export function SearchClient({ latestDate }: SearchClientProps) {
           </div>
         ) : (
           <div className="space-y-3">
-            {results.map((result, idx) => (
-              <SearchResultCard key={idx} result={result} />
+            {results.map((result) => (
+              <SearchResultCard key={result.id} result={result} />
             ))}
           </div>
         )}
@@ -112,18 +118,26 @@ export function SearchClient({ latestDate }: SearchClientProps) {
 }
 
 function SearchResultCard({ result }: { result: SearchResult }) {
-  const proxyUrl = result.platforms.length > 0
-    ? `/api/thumbnail?platform=${encodeURIComponent(result.platforms[0].platform)}&title=${encodeURIComponent(result.title)}`
-    : null;
-
   const [imgError, setImgError] = useState(false);
 
-  // 가장 높은 랭킹(낮은 숫자)
-  const bestRank = Math.min(...result.platforms.map(p => p.rank));
-  const bestPlatform = result.platforms.find(p => p.rank === bestRank);
+  // 썸네일 프록시 URL
+  const thumbPlatform = result.works[0]?.platform || "";
+  const thumbTitle = result.works[0]?.title || "";
+  const proxyUrl = thumbPlatform
+    ? `/api/thumbnail?platform=${encodeURIComponent(thumbPlatform)}&title=${encodeURIComponent(thumbTitle)}`
+    : null;
+
+  // 표시 제목: 한국어 > 정식 제목 > 영문
+  const displayTitle = result.title_kr || result.title_canonical || result.title_en || "제목 없음";
+  const subTitle = result.title_kr
+    ? (result.title_canonical !== result.title_kr ? result.title_canonical : result.title_en)
+    : null;
 
   return (
-    <div className="bg-card rounded-xl border p-4 hover:border-primary/30 transition-colors">
+    <Link
+      href={`/work/${result.id}`}
+      className="block bg-card rounded-xl border p-4 hover:border-primary/30 hover:shadow-sm transition-all"
+    >
       <div className="flex gap-4">
         {/* 썸네일 */}
         <div className="shrink-0">
@@ -150,42 +164,58 @@ function SearchResultCard({ result }: { result: SearchResult }) {
         <div className="flex-1 min-w-0">
           {/* 작품명 */}
           <div className="flex items-center gap-2">
-            <Link
-              href={`/title/${bestPlatform?.platform || result.platforms[0]?.platform}/${encodeURIComponent(result.title)}`}
-              className="text-base font-bold text-foreground hover:text-primary transition-colors truncate"
-            >
-              {result.title}
-            </Link>
+            <span className="text-base font-bold text-foreground truncate">
+              {displayTitle}
+            </span>
             {result.is_riverse && <RiverseBadge />}
           </div>
-          {result.title_kr && (
-            <p className="text-xs text-muted-foreground mt-0.5 truncate">{result.title_kr}</p>
+          {subTitle && (
+            <p className="text-xs text-muted-foreground mt-0.5 truncate">{subTitle}</p>
+          )}
+          {result.author && (
+            <p className="text-xs text-muted-foreground mt-0.5">✍️ {result.author}</p>
           )}
 
-          {/* 크로스 플랫폼 랭킹 */}
-          <div className="flex flex-wrap gap-2 mt-2">
-            {result.platforms.map((p) => {
-              const platformInfo = getPlatformById(p.platform);
+          {/* 플랫폼별 정보 */}
+          <div className="flex flex-wrap gap-1.5 mt-2">
+            {result.works.map((w) => {
+              const pInfo = getPlatformById(w.platform);
               return (
-                <Link
-                  key={p.platform}
-                  href={`/title/${p.platform}/${encodeURIComponent(result.title)}`}
-                  className="flex items-center gap-1.5 text-xs bg-muted px-2.5 py-1 rounded-full hover:bg-muted/80 transition-colors"
+                <span
+                  key={w.platform}
+                  className="flex items-center gap-1 text-xs bg-muted px-2 py-0.5 rounded-full"
                 >
                   <span
                     className="inline-block w-2 h-2 rounded-full"
-                    style={{ backgroundColor: platformInfo?.color || "#888" }}
+                    style={{ backgroundColor: pInfo?.color || "#888" }}
                   />
-                  <span className="font-medium">{platformInfo?.name || p.platform}</span>
-                  <span className="font-bold" style={{ color: platformInfo?.color || "#888" }}>
-                    {p.rank}위
-                  </span>
-                </Link>
+                  <span className="font-medium">{pInfo?.name || w.platform}</span>
+                  {w.best_rank && (
+                    <span className="text-muted-foreground">
+                      최고 {w.best_rank}위
+                    </span>
+                  )}
+                  {w.rating && (
+                    <span className="text-muted-foreground">
+                      ★{w.rating.toFixed(1)}
+                    </span>
+                  )}
+                </span>
               );
             })}
           </div>
+
+          {/* 장르 */}
+          {result.genre_kr && (
+            <p className="text-xs text-muted-foreground mt-1">🏷️ {result.genre_kr}</p>
+          )}
+        </div>
+
+        {/* 화살표 */}
+        <div className="flex items-center text-muted-foreground">
+          <span className="text-lg">›</span>
         </div>
       </div>
-    </div>
+    </Link>
   );
 }
