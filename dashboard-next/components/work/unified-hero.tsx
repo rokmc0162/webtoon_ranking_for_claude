@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { RiverseBadge } from "@/components/riverse-badge";
+import { isJapanesePlatform } from "@/lib/constants";
 import type { UnifiedWorkMetadata, PlatformWorkEntry } from "@/lib/types";
 
 function parseTags(raw: string): string[] {
@@ -22,15 +23,25 @@ interface UnifiedHeroProps {
 }
 
 export function UnifiedHero({ metadata, platforms }: UnifiedHeroProps) {
-  // 썸네일: 첫 플랫폼 프록시 사용
-  const firstPlatform = platforms[0];
-  const proxyUrl = firstPlatform
-    ? `/api/thumbnail?platform=${encodeURIComponent(firstPlatform.platform)}&title=${encodeURIComponent(firstPlatform.title)}`
+  // 썸네일: 일본 플랫폼 우선
+  const jpPlatforms = platforms.filter((p) => isJapanesePlatform(p.platform));
+  const enPlatforms = platforms.filter((p) => !isJapanesePlatform(p.platform));
+  const primaryPlatform = jpPlatforms[0] || platforms[0];
+  const proxyUrl = primaryPlatform
+    ? `/api/thumbnail?platform=${encodeURIComponent(primaryPlatform.platform)}&title=${encodeURIComponent(primaryPlatform.title)}`
     : null;
+  // 영어 플랫폼 썸네일 (일본 버전과 다른 경우에만 표시)
+  const enThumbPlatform = enPlatforms[0];
+  const enProxyUrl = enThumbPlatform
+    ? `/api/thumbnail?platform=${encodeURIComponent(enThumbPlatform.platform)}&title=${encodeURIComponent(enThumbPlatform.title)}`
+    : null;
+  const showEnThumb = enProxyUrl && enThumbPlatform && jpPlatforms.length > 0;
+
   const hasThumbnail = !!(metadata.thumbnail_url);
   const [loadState, setLoadState] = useState<"proxy" | "cdn" | "fallback">(
     hasThumbnail && proxyUrl ? "proxy" : "fallback"
   );
+  const [enThumbError, setEnThumbError] = useState(false);
   const [descExpanded, setDescExpanded] = useState(false);
 
   let thumbnailSrc: string | null = null;
@@ -54,7 +65,8 @@ export function UnifiedHero({ metadata, platforms }: UnifiedHeroProps) {
     <div className="bg-card rounded-xl border p-4 sm:p-6">
       <div className="flex gap-4 sm:gap-6">
         {/* 썸네일 */}
-        <div className="shrink-0">
+        <div className="shrink-0 flex gap-2">
+          {/* 메인 썸네일 (일본어 버전 우선) */}
           {thumbnailSrc ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img
@@ -73,6 +85,25 @@ export function UnifiedHero({ metadata, platforms }: UnifiedHeroProps) {
           ) : (
             <div className="w-[100px] h-[140px] bg-muted rounded-lg flex items-center justify-center text-3xl">
               📖
+            </div>
+          )}
+          {/* 영어 플랫폼 썸네일 (별도 표시) */}
+          {showEnThumb && !enThumbError && (
+            <div className="relative">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={enProxyUrl!}
+                alt=""
+                width={72}
+                height={100}
+                className="rounded-lg bg-muted border border-border"
+                style={{ width: 72, height: 100, objectFit: "cover" }}
+                referrerPolicy="no-referrer"
+                onError={() => setEnThumbError(true)}
+              />
+              <span className="absolute -bottom-1 left-1/2 -translate-x-1/2 text-[10px] bg-background/90 text-muted-foreground px-1.5 py-0.5 rounded-full border whitespace-nowrap">
+                🇬🇧 EN
+              </span>
             </div>
           )}
         </div>

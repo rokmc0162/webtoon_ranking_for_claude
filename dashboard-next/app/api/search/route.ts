@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { sql } from "@/lib/supabase";
+import { isJapanesePlatform } from "@/lib/constants";
 
 /**
  * 작품 검색 API — 전체 작품 DB에서 검색
@@ -59,16 +60,8 @@ export async function GET(request: NextRequest) {
       LIMIT 50
     `;
 
-    const results = rows.map((r) => ({
-      id: r.id,
-      title_kr: r.title_kr || "",
-      title_en: r.title_en || "",
-      title_canonical: r.title_canonical || "",
-      author: r.author || "",
-      genre_kr: r.genre_kr || "",
-      is_riverse: r.is_riverse ?? false,
-      thumbnail_url: r.uw_thumb || null,
-      works: (r.works || [])
+    const results = rows.map((r) => {
+      const works = (r.works || [])
         .filter((w: Record<string, unknown>) => w.platform !== null)
         .map((w: Record<string, unknown>) => ({
           platform: String(w.platform),
@@ -78,13 +71,40 @@ export async function GET(request: NextRequest) {
           review_count: w.review_count != null ? Number(w.review_count) : null,
           thumbnail_url: w.thumbnail_url ? String(w.thumbnail_url) : null,
           last_seen_date: w.last_seen_date ? String(w.last_seen_date) : null,
-        })),
-    }));
+        }))
+        // 일본 플랫폼 우선 정렬
+        .sort((a: { platform: string }, b: { platform: string }) => {
+          const aJP = isJapanesePlatform(a.platform) ? 0 : 1;
+          const bJP = isJapanesePlatform(b.platform) ? 0 : 1;
+          if (aJP !== bJP) return aJP - bJP;
+          return a.platform.localeCompare(b.platform);
+        });
 
-    // thumbnail_url 보정: unified_works에 없으면 works에서 가져옴
+      return {
+        id: r.id,
+        title_kr: r.title_kr || "",
+        title_en: r.title_en || "",
+        title_canonical: r.title_canonical || "",
+        author: r.author || "",
+        genre_kr: r.genre_kr || "",
+        is_riverse: r.is_riverse ?? false,
+        thumbnail_url: r.uw_thumb || null,
+        works,
+      };
+    });
+
+    // thumbnail_url 보정: 일본 플랫폼 썸네일 우선 → 영어 플랫폼 fallback
     for (const r of results) {
       if (!r.thumbnail_url && r.works.length > 0) {
-        const thumb = r.works.find((w: { thumbnail_url: string | null }) => w.thumbnail_url);
+        // 일본 플랫폼 썸네일 우선
+        const jpThumb = r.works.find(
+          (w: { platform: string; thumbnail_url: string | null }) =>
+            isJapanesePlatform(w.platform) && w.thumbnail_url
+        );
+        const anyThumb = r.works.find(
+          (w: { thumbnail_url: string | null }) => w.thumbnail_url
+        );
+        const thumb = jpThumb || anyThumb;
         if (thumb) r.thumbnail_url = thumb.thumbnail_url;
       }
     }

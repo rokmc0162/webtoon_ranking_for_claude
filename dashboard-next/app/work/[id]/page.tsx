@@ -1,5 +1,5 @@
 import { sql } from "@/lib/supabase";
-import { PLATFORMS } from "@/lib/constants";
+import { PLATFORMS, isJapanesePlatform } from "@/lib/constants";
 import { UnifiedWorkClient } from "@/components/work/unified-work-client";
 import type { Metadata } from "next";
 
@@ -82,6 +82,18 @@ export default async function UnifiedWorkPage({ params }: Props) {
     thumbnail_url: uw.thumbnail_url || null,
     thumbnail_base64: uw.thumbnail_base64 || null,
   };
+
+  // thumbnail_url 보정: unified_works에 없으면 일본 플랫폼 works에서 우선 가져옴
+  if (!metadata.thumbnail_url && worksRows.length > 0) {
+    const jpWork = worksRows.find(
+      (w) => isJapanesePlatform(w.platform) && w.thumbnail_url
+    );
+    // fallback: 아무 works에서
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const anyWork = worksRows.find((w: any) => w.thumbnail_url);
+    const thumbWork = jpWork || anyWork;
+    if (thumbWork) metadata.thumbnail_url = String(thumbWork.thumbnail_url);
+  }
 
   // 모든 플랫폼의 장르 + 랭킹 히스토리를 한 번에 조회 (개별 쿼리 대신 벌크)
   const allTitles = worksRows.map((w) => w.title);
@@ -187,8 +199,15 @@ export default async function UnifiedWorkPage({ params }: Props) {
     rankMap.set(mapKey, { overall, genre, latest });
   }
 
-  // 플랫폼 데이터 조립
-  const platforms = worksRows.map((w) => {
+  // 플랫폼 데이터 조립 (일본 플랫폼 우선 정렬)
+  const sortedWorksRows = [...worksRows].sort((a, b) => {
+    const aJP = isJapanesePlatform(a.platform) ? 0 : 1;
+    const bJP = isJapanesePlatform(b.platform) ? 0 : 1;
+    if (aJP !== bJP) return aJP - bJP;
+    return String(a.platform).localeCompare(String(b.platform));
+  });
+
+  const platforms = sortedWorksRows.map((w) => {
     const pInfo = PLATFORMS.find((p) => p.id === w.platform);
     const mapKey = `${w.platform}:${w.title}`;
     const genreKey = genreMap.get(mapKey) || "";

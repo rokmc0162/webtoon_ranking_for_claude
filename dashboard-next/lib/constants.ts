@@ -194,3 +194,21 @@ export const PLATFORMS: PlatformInfo[] = [
 export function getPlatformById(id: string): PlatformInfo | undefined {
   return PLATFORMS.find((p) => p.id === id);
 }
+
+/** 영어 전용 플랫폼 ID 목록 */
+export const ENGLISH_PLATFORMS = new Set(["asura"]);
+
+/** 일본어 플랫폼인지 여부 (asura 제외 나머지 전부) */
+export function isJapanesePlatform(platformId: string): boolean {
+  return !ENGLISH_PLATFORMS.has(platformId);
+}
+
+/** 플랫폼 정렬: 일본 플랫폼 우선 → 영어 플랫폼 뒤로 */
+export function sortPlatformsJPFirst<T extends { platform: string }>(items: T[]): T[] {
+  return [...items].sort((a, b) => {
+    const aJP = isJapanesePlatform(a.platform) ? 0 : 1;
+    const bJP = isJapanesePlatform(b.platform) ? 0 : 1;
+    if (aJP !== bJP) return aJP - bJP;
+    return a.platform.localeCompare(b.platform);
+  });
+}

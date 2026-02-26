@@ -5,7 +5,7 @@ import Link from "next/link";
 import { Header } from "@/components/header";
 import { RiverseBadge } from "@/components/riverse-badge";
 import { Separator } from "@/components/ui/separator";
-import { getPlatformById } from "@/lib/constants";
+import { getPlatformById, isJapanesePlatform } from "@/lib/constants";
 
 interface WorkEntry {
   platform: string;
@@ -120,9 +120,11 @@ export function SearchClient() {
 function SearchResultCard({ result }: { result: SearchResult }) {
   const [imgError, setImgError] = useState(false);
 
-  // 썸네일 프록시 URL
-  const thumbPlatform = result.works[0]?.platform || "";
-  const thumbTitle = result.works[0]?.title || "";
+  // 썸네일 프록시 URL — 일본 플랫폼 우선
+  const jpWork = result.works.find((w) => isJapanesePlatform(w.platform));
+  const thumbWork = jpWork || result.works[0];
+  const thumbPlatform = thumbWork?.platform || "";
+  const thumbTitle = thumbWork?.title || "";
   const proxyUrl = thumbPlatform
     ? `/api/thumbnail?platform=${encodeURIComponent(thumbPlatform)}&title=${encodeURIComponent(thumbTitle)}`
     : null;
