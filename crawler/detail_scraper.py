@@ -180,15 +180,33 @@ class DetailScraper:
                 }
 
                 // ─── 작가 정보 (역할별 분리) ───
-                // 구조화된 DOM에서 추출 시도: dt.mdMNG04Dt02 + dd.mdMNG04Dd02
+                // 구조화된 DOM에서 추출: 각 링크 텍스트를 개별 추출 후 결합
                 const authorDd = document.querySelector('.mdMNG04Dd02, dd.mdMNG04Dd02');
                 if (authorDd) {
-                    // 링크된 작가명 추출 (역할 정보 포함)
                     const authorLinks = authorDd.querySelectorAll('a[href*="author_id"]');
                     if (authorLinks.length > 0) {
-                        // 전체 텍스트에서 역할 파싱: "WAN.Z(redice studio)(脚色)・Maslow(原作)・swingbat(作画)"
-                        const fullText = authorDd.textContent.trim();
-                        result.author = fullText;
+                        // 각 링크의 텍스트를 추출 (역할 괄호 포함)
+                        const names = [];
+                        for (const a of authorLinks) {
+                            // 링크 텍스트 + 바로 뒤의 역할 괄호
+                            let name = a.textContent.trim();
+                            // 링크 뒤 sibling에서 역할 정보 추출 (例: "(脚色)")
+                            let next = a.nextSibling;
+                            while (next && next.nodeType === 3) {
+                                const t = next.textContent.trim();
+                                if (t.startsWith('(')) {
+                                    // "(脚色)" 같은 역할 붙이기
+                                    const roleMatch = t.match(/^(\\([^)]+\\))/);
+                                    if (roleMatch) name += roleMatch[1];
+                                }
+                                break;
+                            }
+                            if (name) names.push(name);
+                        }
+                        result.author = names.join(', ');
+                    } else {
+                        // 링크 없는 경우 전체 텍스트 정리
+                        result.author = authorDd.textContent.replace(/\\s+/g, ' ').trim();
                     }
                 }
 
@@ -197,6 +215,11 @@ class DetailScraper:
                     const body = document.body.innerText;
                     const authorMatch = body.match(/作者[\\s\\n]*([^\\n]+)/);
                     if (authorMatch) result.author = authorMatch[1].trim();
+                }
+
+                // author 길이 제한 (DB VARCHAR(500))
+                if (result.author && result.author.length > 490) {
+                    result.author = result.author.substring(0, 490);
                 }
 
                 // ─── 출판사 ───
