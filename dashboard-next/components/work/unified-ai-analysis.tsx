@@ -64,7 +64,11 @@ export function UnifiedAiAnalysis({ workId }: UnifiedAiAnalysisProps) {
   };
 
   const renderAnalysis = (text: string) => {
-    const cleaned = text
+    // "1. 시장 포지션" 이전의 서론/과정 설명 제거
+    const sectionStart = text.indexOf("1.");
+    const trimmed = sectionStart > 0 ? text.slice(sectionStart) : text;
+
+    const cleaned = trimmed
       .replace(/#{1,4}\s*/g, "")
       .replace(/\*\*([^*]+)\*\*/g, "$1")
       .replace(/\*([^*]+)\*/g, "$1")
