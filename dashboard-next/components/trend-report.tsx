@@ -147,7 +147,7 @@ function RiverseCard({ report }: { report: TrendReport }) {
 
       {/* Narrative Summary */}
       <div className="px-4 py-3 border-b border-blue-100 dark:border-blue-900/50">
-        <p className="text-sm text-foreground/85 leading-relaxed">
+        <p className="text-[13px] text-foreground/85 leading-6 whitespace-pre-line">
           {riverse.summary || "데이터를 분석 중입니다..."}
         </p>
       </div>
@@ -348,7 +348,7 @@ function MarketCard({ report }: { report: TrendReport }) {
 
       {/* Narrative Summary */}
       <div className="px-4 py-3 border-b border-amber-100 dark:border-amber-900/50">
-        <p className="text-sm text-foreground/85 leading-relaxed">
+        <p className="text-[13px] text-foreground/85 leading-6 whitespace-pre-line">
           {market.summary || "데이터를 분석 중입니다..."}
         </p>
       </div>

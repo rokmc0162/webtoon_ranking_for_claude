@@ -335,7 +335,7 @@ function josa(word: string, withBatchim: string, withoutBatchim: string): string
   return withBatchim;
 }
 
-// ─── 리버스 요약문 ──────────────────────────────────
+// ─── 리버스 요약문 (한 줄 한 문장, 개행 구분) ──────────────────
 
 function buildRiverseSummary(d: {
   totalInRankings: number;
@@ -344,37 +344,42 @@ function buildRiverseSummary(d: {
   rising: RisingWork[];
   platformShare: PlatformShare[];
 }): string {
-  const parts: string[] = [];
+  const lines: string[] = [];
 
+  // 총 현황
+  lines.push(`${d.activePlatforms}개 플랫폼, ${d.totalInRankings}건 랭킹 진입`);
+
+  // 최고 순위
   if (d.topRanked.length > 0) {
-    const top1 = d.topRanked[0];
-    const activeShares = d.platformShare.filter((p) => p.riverse_count > 0);
-    const topShare = activeShares.length > 0
-      ? activeShares.reduce((a, b) => (a.share_pct > b.share_pct ? a : b))
-      : null;
-
-    let text = `${d.activePlatforms}개 플랫폼에서 총 ${d.totalInRankings}건 랭킹 진입.`;
-    if (top1.rank <= 3) {
-      text += ` «${top1.title_kr || top1.title}»${josa(top1.title_kr || top1.title, "이", "가")} ${top1.platform_name} ${top1.rank}위로 선두를 유지하고 있습니다.`;
+    const t = d.topRanked[0];
+    const name = t.title_kr || t.title;
+    if (t.rank <= 3) {
+      lines.push(`${t.platform_name} ${t.rank}위 «${name}» — 선두 유지`);
     } else {
-      text += ` 최고 순위 ${top1.platform_name} «${top1.title_kr || top1.title}» ${top1.rank}위.`;
+      lines.push(`최고 순위: ${t.platform_name} ${t.rank}위 «${name}»`);
     }
-    if (topShare && topShare.share_pct >= 3) {
-      text += ` ${topShare.platform_name} 점유율 ${topShare.share_pct}%로 최고.`;
-    }
-    parts.push(text);
   }
 
+  // 점유율
+  const activeShares = d.platformShare.filter((p) => p.riverse_count > 0);
+  if (activeShares.length > 0) {
+    const top = activeShares.reduce((a, b) => (a.share_pct > b.share_pct ? a : b));
+    if (top.share_pct >= 3) {
+      lines.push(`${top.platform_name} 점유율 ${top.share_pct}% 최고`);
+    }
+  }
+
+  // 급상승
   if (d.rising.length > 0) {
-    const top = d.rising[0];
-    const topName = top.title_kr || top.title;
-    parts.push(`급상승: «${topName}» ${top.prev_rank}→${top.curr_rank}위(+${top.change}, ${top.platform_name})${d.rising.length > 1 ? ` 외 ${d.rising.length - 1}작` : ""}`);
+    const r = d.rising[0];
+    const name = r.title_kr || r.title;
+    lines.push(`급상승 «${name}» ${r.prev_rank}→${r.curr_rank}위 (+${r.change})`);
   }
 
-  return parts.join(" ");
+  return lines.join("\n");
 }
 
-// ─── 시장 전체 요약문 ──────────────────────────────────
+// ─── 시장 전체 요약문 (한 줄 한 문장, 개행 구분) ──────────────────
 
 function buildMarketSummary(d: {
   rising: RisingWork[];
@@ -382,35 +387,33 @@ function buildMarketSummary(d: {
   multiPlatform: MultiPlatformWork[];
   top1Works: { title: string; title_kr: string | null; platform: string; platform_name: string; is_riverse: boolean }[];
 }): string {
-  const parts: string[] = [];
+  const lines: string[] = [];
 
-  // 각 플랫폼 1위 중 눈에 띄는 변화
-  const nonRiverseTop1 = d.top1Works.filter((w) => !w.is_riverse);
-  if (nonRiverseTop1.length > 0) {
-    const examples = nonRiverseTop1.slice(0, 3).map((w) => `${w.platform_name} «${w.title_kr || w.title}»`);
-    parts.push(`각 플랫폼 1위: ${examples.join(", ")}${nonRiverseTop1.length > 3 ? " 등" : ""}.`);
-  }
-
+  // 급상승
   if (d.rising.length > 0) {
-    const top = d.rising[0];
-    const topName = top.title_kr || top.title;
-    parts.push(`최대 급상승: «${topName}» ${top.prev_rank}→${top.curr_rank}위(+${top.change}, ${top.platform_name}).${d.rising.length > 2 ? ` 총 ${d.rising.length}작품이 5위 이상 상승.` : ""}`);
-  }
-
-  if (d.newEntries.length > 0) {
-    const top1New = d.newEntries.filter((w) => w.rank <= 3);
-    if (top1New.length > 0) {
-      const names = top1New.slice(0, 2).map((w) => `«${w.title_kr || w.title}»(${w.platform_name} ${w.rank}위)`);
-      parts.push(`주목 신규: ${names.join(", ")} 등 ${d.newEntries.length}작품 TOP 30 진입.`);
-    } else {
-      parts.push(`신규 ${d.newEntries.length}작품이 TOP 30에 진입.`);
+    const r = d.rising[0];
+    const name = r.title_kr || r.title;
+    lines.push(`최대 급상승 «${name}» +${r.change}계단 (${r.platform_name})`);
+    if (d.rising.length > 2) {
+      lines.push(`5위 이상 상승 ${d.rising.length}작품`);
     }
   }
 
-  if (d.multiPlatform.length > 0) {
-    const top = d.multiPlatform[0];
-    parts.push(`크로스플랫폼: «${top.title_kr}» ${top.platform_count}개 플랫폼 동시 랭크인${d.multiPlatform.length > 1 ? ` 외 ${d.multiPlatform.length - 1}작` : ""}.`);
+  // 신규 진입
+  if (d.newEntries.length > 0) {
+    const top = d.newEntries.filter((w) => w.rank <= 3);
+    if (top.length > 0) {
+      const w = top[0];
+      lines.push(`신규 주목 «${w.title_kr || w.title}» ${w.platform_name} ${w.rank}위 진입`);
+    }
+    lines.push(`TOP 30 신규 ${d.newEntries.length}작품`);
   }
 
-  return parts.join(" ");
+  // 멀티플랫폼
+  if (d.multiPlatform.length > 0) {
+    const m = d.multiPlatform[0];
+    lines.push(`«${m.title_kr}» ${m.platform_count}개 플랫폼 동시 랭크인`);
+  }
+
+  return lines.join("\n");
 }
