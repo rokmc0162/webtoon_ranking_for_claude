@@ -24,6 +24,9 @@ export interface TrendReport {
   data_date: string;
   prev_date: string;
 
+  /** 사람이 읽는 해석적 요약문 (서버사이드 JS 로직으로 자동 생성) */
+  summary: string;
+
   riverse_summary: {
     total_platforms: number;
     total_riverse_in_rankings: number;
@@ -289,10 +292,23 @@ export async function generateTrendReport(): Promise<TrendReport | null> {
           : 0,
     }));
 
+    // 해석적 요약문 생성 (순수 JS 로직, AI 토큰 불사용)
+    const summary = buildNarrativeSummary({
+      dataDate,
+      totalPlatforms,
+      totalRiverseInRankings,
+      topRiverse,
+      risingWorks,
+      newEntries,
+      multiPlatform,
+      platformRiverseShare,
+    });
+
     return {
       generated_at: new Date().toISOString(),
       data_date: dataDate,
       prev_date: prevDate,
+      summary,
       riverse_summary: {
         total_platforms: totalPlatforms,
         total_riverse_in_rankings: totalRiverseInRankings,
@@ -307,4 +323,105 @@ export async function generateTrendReport(): Promise<TrendReport | null> {
     console.error("[TrendReport] Failed to generate:", e);
     return null;
   }
+}
+
+// ─── 해석적 요약문 생성 로직 ──────────────────────────────────
+
+interface SummaryInput {
+  dataDate: string;
+  totalPlatforms: number;
+  totalRiverseInRankings: number;
+  topRiverse: TrendReport["riverse_summary"]["top_riverse"];
+  risingWorks: TrendReport["rising_works"];
+  newEntries: TrendReport["new_entries"];
+  multiPlatform: TrendReport["multi_platform"];
+  platformRiverseShare: TrendReport["platform_riverse_share"];
+}
+
+function buildNarrativeSummary(d: SummaryInput): string {
+  const parts: string[] = [];
+
+  // ── 1. 리버스 현황 총평 ──
+  const activePlatforms = d.platformRiverseShare.filter((p) => p.riverse_count > 0);
+  const topSharePlatform = activePlatforms.length > 0
+    ? activePlatforms.reduce((a, b) => (a.share_pct > b.share_pct ? a : b))
+    : null;
+
+  if (d.topRiverse.length > 0) {
+    const top1 = d.topRiverse[0];
+    const top3Names = d.topRiverse
+      .slice(0, 3)
+      .map((w) => w.title_kr)
+      .join(", ");
+
+    let opener = `${d.totalPlatforms}개 플랫폼에서 리버스 작품 총 ${d.totalRiverseInRankings}건이 종합 랭킹에 진입해 있습니다.`;
+    if (top1.rank <= 3) {
+      opener += ` 특히 «${top1.title_kr}»이(가) ${top1.platform_name} ${top1.rank}위를 기록하며 상위권을 유지하고 있습니다.`;
+    } else {
+      opener += ` 최고 순위는 ${top1.platform_name}의 «${top1.title_kr}» ${top1.rank}위입니다.`;
+    }
+
+    // 리버스 점유율 언급
+    if (topSharePlatform && topSharePlatform.share_pct >= 5) {
+      opener += ` 점유율은 ${topSharePlatform.platform_name}이(가) ${topSharePlatform.share_pct}%로 가장 높습니다.`;
+    }
+
+    parts.push(opener);
+  } else {
+    parts.push(`현재 ${d.totalPlatforms}개 플랫폼 종합 랭킹에 리버스 작품 ${d.totalRiverseInRankings}건이 등록되어 있습니다.`);
+  }
+
+  // ── 2. 급상승 동향 ──
+  if (d.risingWorks.length > 0) {
+    const top = d.risingWorks[0];
+    const topName = top.title_kr || top.title;
+    let risingText = `전일 대비 가장 큰 상승세를 보인 작품은 «${topName}»으로, ${top.platform_name}에서 ${top.prev_rank}위→${top.curr_rank}위(+${top.change})를 기록했습니다.`;
+
+    if (d.risingWorks.length > 1) {
+      const second = d.risingWorks[1];
+      const secondName = second.title_kr || second.title;
+      risingText += ` «${secondName}»(+${second.change}) 등 총 ${d.risingWorks.length}작품이 5위 이상 급상승했습니다.`;
+    }
+
+    // 리버스 급상승 있는지 체크
+    const riverseRising = d.risingWorks.filter((w) => {
+      return d.topRiverse.some((r) => r.title_kr === (w.title_kr || w.title));
+    });
+    if (riverseRising.length > 0) {
+      const rr = riverseRising[0];
+      risingText += ` 이 중 리버스 작품 «${rr.title_kr || rr.title}»도 +${rr.change}으로 주목할 만합니다.`;
+    }
+
+    parts.push(risingText);
+  }
+
+  // ── 3. 신규 진입 ──
+  if (d.newEntries.length > 0) {
+    const top1Entries = d.newEntries.filter((w) => w.rank === 1);
+    if (top1Entries.length > 0) {
+      const names = top1Entries
+        .map((w) => `«${w.title_kr || w.title}»(${w.platform_name})`)
+        .join(", ");
+      parts.push(
+        `신규 진입 중 ${names}이(가) 1위에 바로 올라 눈에 띕니다. 총 ${d.newEntries.length}작품이 TOP 30에 새로 등장했습니다.`
+      );
+    } else {
+      const topEntry = d.newEntries[0];
+      parts.push(
+        `신규 작품 ${d.newEntries.length}건이 TOP 30에 진입했으며, «${topEntry.title_kr || topEntry.title}»이(가) ${topEntry.platform_name} ${topEntry.rank}위로 가장 높은 순위를 기록했습니다.`
+      );
+    }
+  }
+
+  // ── 4. 멀티플랫폼 인기작 ──
+  if (d.multiPlatform.length > 0) {
+    const top = d.multiPlatform[0];
+    let multiText = `«${top.title_kr}»이(가) ${top.platform_count}개 플랫폼에서 동시 랭크인하며 크로스플랫폼 인기를 입증하고 있습니다.`;
+    if (d.multiPlatform.length > 2) {
+      multiText += ` 외 ${d.multiPlatform.length - 1}작품이 3개 이상 플랫폼에 동시 노출 중입니다.`;
+    }
+    parts.push(multiText);
+  }
+
+  return parts.join("\n\n");
 }

@@ -63,7 +63,6 @@ function ShareBar({ pct }: { pct: number }) {
 }
 
 function formatDate(dateStr: string): string {
-  // "2026-02-26" -> "2/26"
   const parts = dateStr.split("-");
   if (parts.length === 3) {
     return `${parseInt(parts[1])}/${parseInt(parts[2])}`;
@@ -72,54 +71,45 @@ function formatDate(dateStr: string): string {
 }
 
 export function TrendReportCard({ report }: { report?: TrendReport | null }) {
-  const [expanded, setExpanded] = useState(false);
+  const [detailOpen, setDetailOpen] = useState(false);
 
   if (!report) return null;
 
   const { riverse_summary, rising_works, new_entries, multi_platform, platform_riverse_share } =
     report;
 
-  // Build headline
-  const topRisingName =
-    rising_works.length > 0
-      ? rising_works[0].title_kr || rising_works[0].title
-      : null;
-  const topRisingChange = rising_works.length > 0 ? rising_works[0].change : 0;
-
   return (
     <div className="bg-card border rounded-xl overflow-hidden mb-4">
-      {/* Collapsed header / toggle */}
-      <button
-        onClick={() => setExpanded(!expanded)}
-        className="w-full text-left px-4 py-3 flex items-start sm:items-center justify-between gap-2 hover:bg-muted/50 transition-colors cursor-pointer"
-      >
-        <div className="flex-1 min-w-0">
-          <p className="text-sm font-medium text-foreground leading-snug">
-            <span className="mr-1">📊</span>
-            JP 웹툰 트렌드 ({formatDate(report.data_date)})
-            <span className="text-muted-foreground"> — </span>
-            리버스 {riverse_summary.total_riverse_in_rankings}작 랭킹
-            {topRisingName && (
-              <>
-                , 급상승{" "}
-                <span className="font-semibold text-foreground">
-                  [{topRisingName}]
-                </span>{" "}
-                <span className="text-emerald-500">+{topRisingChange}</span>
-              </>
-            )}
-            {new_entries.length > 0 && (
-              <>, 신규 {new_entries.length}작</>
-            )}
-          </p>
-        </div>
-        <span className="text-xs text-muted-foreground shrink-0 mt-0.5">
-          {expanded ? "접기" : "자세히"}
-        </span>
-      </button>
+      {/* 타이틀 */}
+      <div className="px-4 pt-4 pb-2">
+        <h2 className="text-sm font-bold text-foreground flex items-center gap-1.5">
+          <span>📊</span>
+          JP 웹툰 트렌드 리포트
+          <span className="text-xs font-normal text-muted-foreground ml-1">
+            {report.data_date}
+          </span>
+        </h2>
+      </div>
 
-      {/* Expanded content */}
-      {expanded && (
+      {/* 해석적 요약문 (항상 표시) */}
+      <div className="px-4 pb-3">
+        <div className="text-sm text-foreground/85 leading-relaxed whitespace-pre-line">
+          {report.summary}
+        </div>
+      </div>
+
+      {/* 상세 토글 */}
+      <div className="px-4 pb-3">
+        <button
+          onClick={() => setDetailOpen(!detailOpen)}
+          className="text-xs text-blue-500 hover:text-blue-600 hover:bg-muted/50 px-2.5 py-1.5 rounded-lg transition-colors cursor-pointer"
+        >
+          {detailOpen ? "📋 상세 데이터 접기" : "📋 상세 데이터 보기"}
+        </button>
+      </div>
+
+      {/* 상세 데이터 패널 */}
+      {detailOpen && (
         <div className="px-4 pb-4 space-y-5 border-t">
           {/* Section 1: Riverse TOP */}
           {riverse_summary.top_riverse.length > 0 && (
