@@ -91,7 +91,7 @@ export function TrendReportCard({ report }: { report?: TrendReport | null }) {
       {/* Collapsed header / toggle */}
       <button
         onClick={() => setExpanded(!expanded)}
-        className="w-full text-left px-4 py-3 flex items-start sm:items-center justify-between gap-2 hover:bg-muted/50 transition-colors"
+        className="w-full text-left px-4 py-3 flex items-start sm:items-center justify-between gap-2 hover:bg-muted/50 transition-colors cursor-pointer"
       >
         <div className="flex-1 min-w-0">
           <p className="text-sm font-medium text-foreground leading-snug">
@@ -133,7 +133,7 @@ export function TrendReportCard({ report }: { report?: TrendReport | null }) {
                     key={`${w.platform}-${w.rank}-${i}`}
                     className="flex items-center gap-2 text-sm"
                   >
-                    <span className="text-muted-foreground w-7 text-right shrink-0">
+                    <span className="text-muted-foreground w-9 text-right shrink-0 whitespace-nowrap">
                       {w.rank}위
                     </span>
                     <WorkLink unifiedWorkId={w.unified_work_id}>
@@ -245,7 +245,7 @@ export function TrendReportCard({ report }: { report?: TrendReport | null }) {
                 📈 플랫폼별 리버스 점유율
               </h3>
               <div className="space-y-1.5">
-                {platform_riverse_share.map((p) => (
+                {platform_riverse_share.filter((p) => p.riverse_count > 0).map((p) => (
                   <div
                     key={p.platform}
                     className="flex items-center gap-2 text-sm"
