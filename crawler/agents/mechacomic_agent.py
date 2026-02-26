@@ -62,7 +62,15 @@ class MechacomicAgent(CrawlerAgent):
           </li>
         </ul>
         """
-        page = await browser.new_page()
+        # 연령확인 쿠키 설정: 이 쿠키가 없으면 독占先行 작품이 랭킹에서 제외됨
+        context = await browser.new_context()
+        await context.add_cookies([{
+            'name': '_confirmed_adult',
+            'value': '1',
+            'domain': 'mechacomic.jp',
+            'path': '/',
+        }])
+        page = await context.new_page()
         all_rankings = []
 
         try:
@@ -88,6 +96,7 @@ class MechacomicAgent(CrawlerAgent):
 
         finally:
             await page.close()
+            await context.close()
 
     async def _crawl_category(self, page, genre_id: str, genre_key: str) -> List[Dict[str, Any]]:
         """특정 카테고리의 랭킹 크롤링 (5페이지, 상위 100개)"""
