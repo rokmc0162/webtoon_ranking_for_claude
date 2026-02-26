@@ -60,6 +60,7 @@ class EbookjapanAgent(CrawlerAgent):
 
                 try:
                     genre_rankings = []
+                    seen_titles = set()  # 장르 내 중복 제거용
 
                     # 2페이지 순회 (각 50위씩, 총 100위)
                     for page_num in [1, 2]:
@@ -85,8 +86,8 @@ class EbookjapanAgent(CrawlerAgent):
                             await page.evaluate('window.scrollBy(0, 800)')
                             await page.wait_for_timeout(400)
 
-                        # DOM 파싱
-                        items = await self._parse_page_rankings(page, genre_key, rank_offset)
+                        # DOM 파싱 (seen_titles 전달하여 크로스페이지 중복 제거)
+                        items = await self._parse_page_rankings(page, genre_key, rank_offset, seen_titles)
                         self.logger.info(f"   페이지 {page_num}: {len(items)}개 추출")
                         genre_rankings.extend(items)
 
@@ -106,12 +107,11 @@ class EbookjapanAgent(CrawlerAgent):
         finally:
             await page.close()
 
-    async def _parse_page_rankings(self, page, genre_key: str, rank_offset: int) -> List[Dict[str, Any]]:
-        """한 페이지(50개)에서 랭킹 아이템 추출"""
+    async def _parse_page_rankings(self, page, genre_key: str, rank_offset: int, seen_titles: set) -> List[Dict[str, Any]]:
+        """한 페이지(50개)에서 랭킹 아이템 추출 — 실제 순위 번호 유지"""
         items = await page.evaluate("""() => {
             const results = [];
             const imgs = document.querySelectorAll('img.cover-main__img');
-            const seenTitles = new Set();
 
             for (const img of imgs) {
                 const src = img.getAttribute('src') || '';
@@ -120,7 +120,7 @@ class EbookjapanAgent(CrawlerAgent):
                 let alt = img.getAttribute('alt') || '';
                 if (!alt || alt.length < 2) continue;
 
-                // 권수/레이블 패턴 제거
+                // 권수/레이블/판형 패턴 제거
                 let title = alt
                     .replace(/[\\s　]+（[０-９0-9]+）（[^）]+）$/u, '')  // （8）（ガルドコミックス）
                     .replace(/[\\s　]*（[０-９0-9]+）$/u, '')           // （8）
@@ -129,13 +129,13 @@ class EbookjapanAgent(CrawlerAgent):
                     .replace(/[\\s　]*[:：][\\s　]*\\d*$/, '')          // ：N or trailing ：
                     .replace(/\\d+【[^】]*】$/, '')                     // 16【電子特典付き】
                     .replace(/【[^】]*】$/, '')                         // 【電子限定特典付き】
+                    .replace(/【[^】]*】/g, '')                         // 중간의 【通常版】等
                     .replace(/[\\s　]+\\d+号.*$/, '')                   // 13号 [2026年...]
                     .replace(/\\s*\\[\\d{4}年.*$/, '')                   // [2026年2月25日発売]
+                    .replace(/[\\s　]+第[０-９0-9]+巻$/, '')            // 第５巻
+                    .replace(/[\\s　]+\\d+$/, '')                       // trailing number
                     .trim();
                 if (!title || title.length < 2) continue;
-
-                if (seenTitles.has(title)) continue;
-                seenTitles.add(title);
 
                 // URL 추출
                 const container = img.closest('li') || img.closest('div') || img.parentElement;
@@ -152,11 +152,17 @@ class EbookjapanAgent(CrawlerAgent):
             return results;
         }""")
 
+        # 실제 사이트 순위 번호 유지 + 중복 작품은 첫 등장만 기록
         rankings = []
         for i, item in enumerate(items[:50]):
+            actual_rank = rank_offset + i + 1
+            title = item['title']
+            if title in seen_titles:
+                continue  # 중복 작품 스킵하되, 순위 번호는 건너뛰지 않음
+            seen_titles.add(title)
             rankings.append({
-                'rank': rank_offset + i + 1,
-                'title': item['title'],
+                'rank': actual_rank,  # 사이트의 실제 순위 번호
+                'title': title,
                 'genre': genre_key,
                 'url': item.get('url', ''),
                 'thumbnail_url': item.get('thumbnail_url', ''),
