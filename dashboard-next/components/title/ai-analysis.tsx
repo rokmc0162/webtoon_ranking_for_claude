@@ -17,9 +17,9 @@ export function AiAnalysis({ platform, title, platformColor }: AiAnalysisProps) 
 
   const apiBase = `/api/title-analysis?platform=${encodeURIComponent(platform)}&title=${encodeURIComponent(title)}`;
 
-  // 마운트 시 캐시된 분석 자동 로드
+  // 마운트 시 캐시된 분석만 확인 (자동 생성하지 않음)
   useEffect(() => {
-    fetch(apiBase)
+    fetch(`${apiBase}&cache_only=true`)
       .then((res) => {
         if (!res.ok) return null;
         return res.json();

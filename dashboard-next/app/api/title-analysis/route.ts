@@ -6,13 +6,14 @@ const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY || "",
 });
 
-export const maxDuration = 30; // Vercel serverless timeout
+export const maxDuration = 60; // Vercel serverless timeout
 
 export async function GET(request: NextRequest) {
   const { searchParams } = request.nextUrl;
   const platform = searchParams.get("platform") || "";
   const title = searchParams.get("title") || "";
   const refresh = searchParams.get("refresh") === "true";
+  const cacheOnly = searchParams.get("cache_only") === "true";
 
   if (!platform || !title) {
     return NextResponse.json({ error: "platform and title required" }, { status: 400 });
@@ -33,6 +34,10 @@ export async function GET(request: NextRequest) {
         generated_at: cached[0].generated_at,
         cached: true,
       });
+    }
+    // 캐시만 확인하는 경우 (마운트 시 자동 로드)
+    if (cacheOnly) {
+      return NextResponse.json({ analysis: null, cached: false });
     }
   }
 

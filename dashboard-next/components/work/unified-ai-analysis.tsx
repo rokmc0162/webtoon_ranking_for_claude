@@ -15,9 +15,9 @@ export function UnifiedAiAnalysis({ workId }: UnifiedAiAnalysisProps) {
   const [initialLoading, setInitialLoading] = useState(true);
   const [error, setError] = useState("");
 
-  // 마운트 시 캐시된 분석 자동 로드
+  // 마운트 시 캐시된 분석만 확인 (자동 생성하지 않음)
   useEffect(() => {
-    fetch(`/api/work-analysis?id=${workId}`)
+    fetch(`/api/work-analysis?id=${workId}&cache_only=true`)
       .then((res) => {
         if (!res.ok) return null;
         return res.json();

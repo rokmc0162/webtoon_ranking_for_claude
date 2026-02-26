@@ -13,12 +13,13 @@ const PLATFORM_NAMES: Record<string, string> = {
   beltoon: "벨툰", unext: "U-NEXT", asura: "Asura Scans",
 };
 
-export const maxDuration = 30; // Vercel serverless timeout
+export const maxDuration = 60; // Vercel serverless timeout
 
 export async function GET(request: NextRequest) {
   const { searchParams } = request.nextUrl;
   const idParam = searchParams.get("id");
   const refresh = searchParams.get("refresh") === "true";
+  const cacheOnly = searchParams.get("cache_only") === "true";
 
   if (!idParam) {
     return NextResponse.json({ error: "id required" }, { status: 400 });
@@ -45,6 +46,10 @@ export async function GET(request: NextRequest) {
         cached: true,
       });
     }
+    // 캐시만 확인하는 경우 (마운트 시 자동 로드)
+    if (cacheOnly) {
+      return NextResponse.json({ analysis: null, cached: false });
+    }
   }
 
   if (!process.env.ANTHROPIC_API_KEY) {
@@ -70,17 +75,29 @@ export async function GET(request: NextRequest) {
     FROM works WHERE unified_work_id = ${id}
   `;
 
-  // 3. 각 플랫폼별 최근 랭킹 추이 (최근 14일)
+  // 3. 모든 플랫폼 랭킹 추이 한 번에 조회 (N+1 제거)
+  const allRankRows = await sql`
+    SELECT r.platform, r.title, r.date, r.rank::int as rank
+    FROM rankings r
+    INNER JOIN works w ON w.platform = r.platform AND w.title = r.title
+    WHERE w.unified_work_id = ${id}
+      AND COALESCE(r.sub_category, '') = ''
+    ORDER BY r.platform, r.date DESC
+  `;
+
+  // 플랫폼별로 그룹핑 (최근 14일만)
+  const rankByPlatform = new Map<string, { date: string; rank: number }[]>();
+  for (const r of allRankRows) {
+    const key = r.platform;
+    if (!rankByPlatform.has(key)) rankByPlatform.set(key, []);
+    const arr = rankByPlatform.get(key)!;
+    if (arr.length < 14) arr.push({ date: r.date, rank: r.rank });
+  }
+
   const rankData: string[] = [];
   for (const w of worksRows) {
-    const rows = await sql`
-      SELECT date, rank::int as rank
-      FROM rankings
-      WHERE title = ${w.title} AND platform = ${w.platform}
-        AND COALESCE(sub_category, '') = ''
-      ORDER BY date DESC LIMIT 14
-    `;
-    if (rows.length > 0) {
+    const rows = rankByPlatform.get(w.platform);
+    if (rows && rows.length > 0) {
       const trend = rows.map((r) => `${r.date}: ${r.rank}위`).join(", ");
       const pName = PLATFORM_NAMES[w.platform] || w.platform;
       rankData.push(`[${pName}] 최고${w.best_rank || "?"}위, 평점${w.rating || "-"}, 리뷰${w.review_count || 0}건\n  추이: ${trend}`);
