@@ -325,6 +325,30 @@ export async function generateTrendReport(): Promise<TrendReport | null> {
   }
 }
 
+// ─── 한국어 조사 헬퍼 ──────────────────────────────────
+
+/** 마지막 글자의 종성(받침) 유무를 판단하여 조사를 선택 */
+function josa(word: string, withBatchim: string, withoutBatchim: string): string {
+  if (!word) return withBatchim;
+  const lastChar = word[word.length - 1];
+  // 한글 범위: 0xAC00 ~ 0xD7A3
+  const code = lastChar.charCodeAt(0);
+  if (code >= 0xAC00 && code <= 0xD7A3) {
+    const hasBatchim = (code - 0xAC00) % 28 !== 0;
+    return hasBatchim ? withBatchim : withoutBatchim;
+  }
+  // 숫자, 영문 등 — 대부분 받침 없는 것으로 처리 (예외는 단순화)
+  // 숫자: 0,1,3,6,7,8 → 받침 있음 / 2,4,5,9 → 없음
+  if (/[0-9]$/.test(lastChar)) {
+    return "01367".includes(lastChar) ? withBatchim : withoutBatchim;
+  }
+  // 영문: l,m,n,r,p,t → 받침 느낌 / 나머지 → 없음
+  if (/[a-zA-Z]$/.test(lastChar)) {
+    return /[lmnrptLMNRPT]$/.test(lastChar) ? withBatchim : withoutBatchim;
+  }
+  return withBatchim; // fallback
+}
+
 // ─── 해석적 요약문 생성 로직 ──────────────────────────────────
 
 interface SummaryInput {
@@ -356,14 +380,14 @@ function buildNarrativeSummary(d: SummaryInput): string {
 
     let opener = `${d.totalPlatforms}개 플랫폼에서 리버스 작품 총 ${d.totalRiverseInRankings}건이 종합 랭킹에 진입해 있습니다.`;
     if (top1.rank <= 3) {
-      opener += ` 특히 «${top1.title_kr}»이(가) ${top1.platform_name} ${top1.rank}위를 기록하며 상위권을 유지하고 있습니다.`;
+      opener += ` 특히 «${top1.title_kr}»${josa(top1.title_kr, "이", "가")} ${top1.platform_name} ${top1.rank}위를 기록하며 상위권을 유지하고 있습니다.`;
     } else {
       opener += ` 최고 순위는 ${top1.platform_name}의 «${top1.title_kr}» ${top1.rank}위입니다.`;
     }
 
     // 리버스 점유율 언급
     if (topSharePlatform && topSharePlatform.share_pct >= 5) {
-      opener += ` 점유율은 ${topSharePlatform.platform_name}이(가) ${topSharePlatform.share_pct}%로 가장 높습니다.`;
+      opener += ` 점유율은 ${topSharePlatform.platform_name}${josa(topSharePlatform.platform_name, "이", "가")} ${topSharePlatform.share_pct}%로 가장 높습니다.`;
     }
 
     parts.push(opener);
@@ -389,7 +413,8 @@ function buildNarrativeSummary(d: SummaryInput): string {
     });
     if (riverseRising.length > 0) {
       const rr = riverseRising[0];
-      risingText += ` 이 중 리버스 작품 «${rr.title_kr || rr.title}»도 +${rr.change}으로 주목할 만합니다.`;
+      const rrName = rr.title_kr || rr.title;
+      risingText += ` 이 중 리버스 작품 «${rrName}»${josa(rrName, "도", "도")} +${rr.change}${josa(String(rr.change), "으로", "로")} 주목할 만합니다.`;
     }
 
     parts.push(risingText);
@@ -402,13 +427,16 @@ function buildNarrativeSummary(d: SummaryInput): string {
       const names = top1Entries
         .map((w) => `«${w.title_kr || w.title}»(${w.platform_name})`)
         .join(", ");
+      const lastEntry = top1Entries[top1Entries.length - 1];
+      const lastName = lastEntry.title_kr || lastEntry.title;
       parts.push(
-        `신규 진입 중 ${names}이(가) 1위에 바로 올라 눈에 띕니다. 총 ${d.newEntries.length}작품이 TOP 30에 새로 등장했습니다.`
+        `신규 진입 중 ${names}${josa(lastName, "이", "가")} 1위에 바로 올라 눈에 띕니다. 총 ${d.newEntries.length}작품이 TOP 30에 새로 등장했습니다.`
       );
     } else {
       const topEntry = d.newEntries[0];
+      const entryName = topEntry.title_kr || topEntry.title;
       parts.push(
-        `신규 작품 ${d.newEntries.length}건이 TOP 30에 진입했으며, «${topEntry.title_kr || topEntry.title}»이(가) ${topEntry.platform_name} ${topEntry.rank}위로 가장 높은 순위를 기록했습니다.`
+        `신규 작품 ${d.newEntries.length}건이 TOP 30에 진입했으며, «${entryName}»${josa(entryName, "이", "가")} ${topEntry.platform_name} ${topEntry.rank}위로 가장 높은 순위를 기록했습니다.`
       );
     }
   }
@@ -416,7 +444,7 @@ function buildNarrativeSummary(d: SummaryInput): string {
   // ── 4. 멀티플랫폼 인기작 ──
   if (d.multiPlatform.length > 0) {
     const top = d.multiPlatform[0];
-    let multiText = `«${top.title_kr}»이(가) ${top.platform_count}개 플랫폼에서 동시 랭크인하며 크로스플랫폼 인기를 입증하고 있습니다.`;
+    let multiText = `«${top.title_kr}»${josa(top.title_kr, "이", "가")} ${top.platform_count}개 플랫폼에서 동시 랭크인하며 크로스플랫폼 인기를 입증하고 있습니다.`;
     if (d.multiPlatform.length > 2) {
       multiText += ` 외 ${d.multiPlatform.length - 1}작품이 3개 이상 플랫폼에 동시 노출 중입니다.`;
     }
