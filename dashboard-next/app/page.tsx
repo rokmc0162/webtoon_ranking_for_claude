@@ -4,10 +4,11 @@ import { DashboardClient } from "@/components/dashboard-client";
 import { PLATFORMS } from "@/lib/constants";
 import { unstable_cache } from "next/cache";
 
-// 동적 렌더링 강제 (빌드 시 DB 연결 불가)
+// 빌드 시 DB 연결 불가 → 런타임 렌더링 필수
 export const dynamic = "force-dynamic";
 
-// 초기 데이터를 캐시하여 반복 요청 시 DB 재조회 방지 (5분)
+// 데이터 함수 캐시: 동일 서버리스 인스턴스 내 5분간 DB 재조회 방지
+// Vercel CDN 캐시(headers)와 이중 캐시 구조로 대부분 요청을 즉시 응답
 const getInitialData = unstable_cache(
   async () => {
     const defaultPlatform = "piccoma";
@@ -22,7 +23,6 @@ const getInitialData = unstable_cache(
     }
 
     // 2. 통계 + 리버스카운트 + 랭킹 + 이전날짜를 병렬 조회
-    // 각 플랫폼의 "종합" sub_category 키 목록 (대부분 '', Asura는 'all')
     const overallKeys = [...new Set(PLATFORMS.map((p) => p.genres[0]?.key ?? ""))];
 
     const [statsRows, riverseCountRows, rankingRows, prevDateRows] = await Promise.all([
@@ -115,7 +115,7 @@ const getInitialData = unstable_cache(
     return { dates, latestDate, stats, riverseCounts, rankings, defaultPlatform };
   },
   ["home-initial-data"],
-  { revalidate: 300 } // 5분 캐시
+  { revalidate: 300 }
 );
 
 export default async function Home() {
