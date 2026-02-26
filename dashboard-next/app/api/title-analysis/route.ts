@@ -6,6 +6,8 @@ const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY || "",
 });
 
+export const maxDuration = 30; // Vercel serverless timeout
+
 export async function GET(request: NextRequest) {
   const { searchParams } = request.nextUrl;
   const platform = searchParams.get("platform") || "";
@@ -130,17 +132,29 @@ export async function GET(request: NextRequest) {
     : "이 플랫폼에서만 확인됨";
 
   const platformNames: Record<string, string> = {
-    piccoma: "픽코마",
-    linemanga: "라인망가",
-    mechacomic: "메챠코믹",
-    cmoa: "코믹시모아",
+    piccoma: "픽코마", linemanga: "라인망가", mechacomic: "메챠코믹",
+    cmoa: "코믹시모아", comico: "코미코", renta: "렌타",
+    booklive: "북라이브", ebookjapan: "이북재팬", lezhin: "레진코믹스",
+    beltoon: "벨툰", unext: "U-NEXT", asura: "Asura Scans",
   };
 
-  const prompt = `당신은 일본 웹툰/만화 시장 분석 전문가입니다. 아래 데이터를 기반으로 이 작품의 현황을 분석해주세요.
+  const pName = platformNames[platform] || platform;
 
-## 작품 정보
-- 제목: ${meta.title} (${meta.title_kr || "한국어명 없음"})
-- 플랫폼: ${platformNames[platform] || platform}
+  const prompt = `당신은 일본 웹툰/만화 시장 분석 전문가입니다.
+
+먼저 이 작품에 대해 웹 검색을 수행하여 최신 정보를 수집한 뒤, 우리 DB 데이터와 종합하여 분석해주세요.
+
+## 검색 지시
+아래 키워드로 웹 검색을 해주세요:
+1. "${meta.title} 漫画 評価" (일본어 제목으로 평가/리뷰 검색)
+${titleKr ? `2. "${titleKr} 웹툰" (한국어 제목으로 검색)` : ""}
+3. "${meta.title} ${pName}" (플랫폼에서의 인기도)
+
+## 우리 DB 데이터
+
+### 작품 정보
+- 제목: ${meta.title} (${titleKr || "한국어명 없음"})
+- 플랫폼: ${pName}
 - 작가: ${meta.author || "미상"}
 - 출판사: ${meta.publisher || "미상"}
 - 장르: ${meta.genre_kr || meta.genre || "미분류"}
@@ -148,54 +162,66 @@ export async function GET(request: NextRequest) {
 - 리버스(한국 원작) 여부: ${meta.is_riverse ? "예" : "아니오"}
 - 작품 설명: ${meta.description ? meta.description.slice(0, 300) : "없음"}
 
-## 랭킹 데이터
+### 랭킹 데이터
 - 최고 순위: ${rankBest}위
 - 평균 순위: ${rankAvg}위
 - 추적 기간: ${meta.first_seen_date || "?"} ~ ${meta.last_seen_date || "?"}
 - 최근 추이 (날짜: 순위): ${rankTrend}
 
-## 리뷰/평가 데이터
+### 리뷰/평가 통계
 - 총 리뷰 수: ${stats.total || 0}건
 - 평균 평점: ${stats.avg_rating || "N/A"}
 - 평점 분포: ★5=${stats.star5||0}, ★4=${stats.star4||0}, ★3=${stats.star3||0}, ★2=${stats.star2||0}, ★1=${stats.star1||0}
 
-## 독자층 (성별/연령 분포)
+### 독자층 (성별/연령 분포)
 ${demographics || "데이터 없음"}
 
-## 크로스 플랫폼 현황
+### 크로스 플랫폼 현황
 ${crossInfo}
 
-## 리뷰 샘플 (좋아요 높은 순)
+### 리뷰 샘플 (좋아요 높은 순)
 ${reviewSamples || "리뷰 없음"}
 
 ---
 
-위 데이터를 분석하여 아래 형식으로 작성해주세요. 반드시 데이터에 근거하여 작성하고, 추측은 "~로 추정됩니다"로 표현하세요.
+웹 검색 결과와 위 DB 데이터를 종합하여 아래 형식으로 분석을 작성해주세요.
+- DB 데이터에 근거한 내용은 그대로 사용
+- 웹 검색에서 얻은 추가 정보는 "(웹 검색 기반)" 등으로 출처 표시
+- 데이터가 없는 항목은 추측하지 말고 "데이터 부족"으로 표시
+- 각 섹션은 간결하게 3-5문장으로
 
 ### 1. 작품 현황 요약
-(2-3문장. 현재 이 작품이 시장에서 어떤 위치에 있는지)
+(시장 위치, 플랫폼 내 현황, 웹에서 확인된 최신 동향)
 
 ### 2. 독자 반응 분석
-(리뷰 내용과 평점을 근거로 독자들이 어떻게 평가하고 있는지)
+(리뷰 데이터 + 웹에서 확인된 평판)
 
 ### 3. 주요 독자층
-(reviewer_info의 성별/연령 데이터와 리뷰 톤을 근거로)
+(성별/연령 데이터 기반, 없으면 "데이터 부족")
 
 ### 4. 강점과 약점
-(데이터 기반으로 이 작품의 장단점)
+(데이터 기반 장단점)
 
 ### 5. 향후 전망
-(랭킹 추이, 리뷰 트렌드를 근거로 향후 예측)`;
+(랭킹 추이 + 웹 검색에서 확인된 연재/미디어 동향)`;
 
   try {
     const response = await anthropic.messages.create({
       model: "claude-haiku-4-5-20251001",
-      max_tokens: 1500,
+      max_tokens: 4096,
+      tools: [
+        {
+          type: "web_search_20250305" as const,
+          name: "web_search" as const,
+          max_uses: 3,
+        },
+      ],
       messages: [{ role: "user", content: prompt }],
     });
 
+    // web_search 사용 시 content 블록에 텍스트와 tool_use가 섞여 나옴
     const text = response.content
-      .filter((block) => block.type === "text")
+      .filter((block): block is Anthropic.TextBlock => block.type === "text")
       .map((block) => block.text)
       .join("");
 
