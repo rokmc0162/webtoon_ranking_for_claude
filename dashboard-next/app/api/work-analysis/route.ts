@@ -122,63 +122,57 @@ export async function GET(request: NextRequest) {
   const titleJa = worksRows.length > 0 ? worksRows[0].title : meta.title_canonical;
   const titleKr = meta.title_kr || "";
 
-  const prompt = `당신은 일본 웹툰/만화 시장 분석 전문가입니다.
+  const prompt = `당신은 일본 만화/웹툰 시장을 10년 이상 분석해온 시니어 콘텐츠 애널리스트입니다.
+아래 데이터와 웹 검색 결과를 종합하여, 콘텐츠 사업 의사결정자에게 보고하는 수준의 분석을 작성하세요.
 
-먼저 이 작품에 대해 웹 검색을 수행하여 최신 정보를 수집한 뒤, 우리 DB 데이터와 종합하여 분석해주세요.
+웹 검색 키워드:
+1. "${titleJa} 漫画 評価"
+${titleKr ? `2. "${titleKr} 웹툰"` : ""}
+3. "${titleJa} ピッコマ" 또는 "${titleJa} LINEマンガ"
 
-## 검색 지시
-아래 키워드로 웹 검색을 해주세요:
-1. "${titleJa} 漫画 評価" (일본어 제목으로 평가/리뷰 검색)
-${titleKr ? `2. "${titleKr} 웹툰" (한국어 제목으로 검색)` : ""}
-3. "${titleJa} ピッコマ" 또는 "${titleJa} LINEマンガ" (플랫폼에서의 인기도)
+[데이터]
+제목: ${titleKr || meta.title_canonical || "미상"} / ${titleJa}
+작가: ${meta.author || "미상"} / 작화: ${meta.artist || "미상"}
+출판사: ${meta.publisher || "미상"}
+장르: ${meta.genre_kr || meta.genre || "미분류"}
+태그: ${meta.tags || "없음"}
+한국 원작 여부: ${meta.is_riverse ? "예" : "아니오"}
+시놉시스: ${meta.description ? meta.description.slice(0, 300) : "없음"}
 
-## 우리 DB 데이터
+플랫폼별 현황 (${worksRows.length}개):
+${rankData.join("\n") || "데이터 없음"}
 
-### 작품 정보
-- 제목: ${titleKr || meta.title_canonical || "미상"} (일본어: ${titleJa})
-- 작가: ${meta.author || "미상"} / 작화: ${meta.artist || "미상"}
-- 출판사: ${meta.publisher || "미상"}
-- 장르: ${meta.genre_kr || meta.genre || "미분류"}
-- 태그: ${meta.tags || "없음"}
-- 리버스(한국 원작) 여부: ${meta.is_riverse ? "예" : "아니오"}
-- 작품 설명: ${meta.description ? meta.description.slice(0, 300) : "없음"}
+리뷰 통계: 총 ${stats.total || 0}건, 평균 ${stats.avg_rating || "N/A"}, 분포 ★5=${stats.star5||0} ★4=${stats.star4||0} ★3=${stats.star3||0} ★2=${stats.star2||0} ★1=${stats.star1||0}
+독자층: ${demographics || "데이터 없음"}
 
-### 플랫폼별 현황 (${worksRows.length}개 플랫폼)
-${rankData.join("\n\n") || "데이터 없음"}
+리뷰 샘플:
+${reviewSamples || "없음"}
 
-### 리뷰/평가 통계
-- 총 리뷰 수: ${stats.total || 0}건
-- 평균 평점: ${stats.avg_rating || "N/A"}
-- 평점 분포: ★5=${stats.star5||0}, ★4=${stats.star4||0}, ★3=${stats.star3||0}, ★2=${stats.star2||0}, ★1=${stats.star1||0}
+[작성 규칙]
+- 마크다운 기호 절대 사용 금지. #, ##, ###, **, -, * 등 일체 사용하지 마세요.
+- 섹션 제목은 "1. 시장 포지션" 처럼 번호와 제목만 쓰세요. 앞뒤에 기호 없이.
+- 한 문장은 짧고 단정하게. 한 줄에 한 문장.
+- 빈 줄로 문단을 구분하세요.
+- 근거 없는 추측 금지. 데이터가 없으면 "확인 불가"로 처리.
+- 웹 검색에서 얻은 정보는 문장 끝에 (웹) 표시.
+- 전문 애널리스트가 경영진에게 브리핑하듯 쓰세요. AI가 쓴 티가 나면 안 됩니다.
 
-### 독자층 (성별/연령 분포)
-${demographics || "데이터 없음"}
+[섹션 구성]
 
-### 리뷰 샘플 (좋아요 높은 순)
-${reviewSamples || "리뷰 없음"}
+1. 시장 포지션
+현재 이 작품의 일본 디지털 만화 시장 내 위치. 멀티 플랫폼 전개 상황. 랭킹 추이에서 읽히는 경쟁력.
 
----
+2. 독자 반응
+리뷰 데이터와 웹 평판을 근거로 한 독자 평가. 긍정/부정 핵심 포인트.
 
-웹 검색 결과와 위 DB 데이터를 종합하여 아래 형식으로 분석을 작성해주세요.
-- DB 데이터에 근거한 내용은 그대로 사용
-- 웹 검색에서 얻은 추가 정보는 "(웹 검색 기반)" 등으로 출처 표시
-- 데이터가 없는 항목은 추측하지 말고 "데이터 부족"으로 표시
-- 각 섹션은 간결하게 3-5문장으로
+3. 타겟 독자층
+성별/연령 데이터가 있으면 구체적으로. 없으면 "확인 불가"로 짧게 처리.
 
-### 1. 작품 현황 요약
-(시장 위치, 멀티 플랫폼 현황, 웹에서 확인된 최신 동향)
+4. 경쟁력 분석
+이 작품이 시장에서 갖는 강점과 리스크. 동일 장르 내 차별화 요소.
 
-### 2. 독자 반응 분석
-(리뷰 데이터 + 웹에서 확인된 평판)
-
-### 3. 주요 독자층
-(성별/연령 데이터 기반, 없으면 "데이터 부족")
-
-### 4. 강점과 약점
-(데이터 기반 장단점)
-
-### 5. 향후 전망
-(랭킹 추이 + 웹 검색에서 확인된 연재/미디어 동향)`;
+5. 사업 전망
+2차 사업(애니화, 드라마화, 굿즈, 게임 등) 가능성. 해외 전개 잠재력. 향후 랭킹/매출 추이 전망.`;
 
   try {
     const response = await anthropic.messages.create({

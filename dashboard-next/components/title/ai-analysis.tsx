@@ -30,46 +30,40 @@ export function AiAnalysis({ platform, title, platformColor }: AiAnalysisProps) 
         setLoading(false);
       })
       .catch(() => {
-        setError("AI 분석을 생성할 수 없습니다. API 키를 확인해주세요.");
+        setError("분석을 생성할 수 없습니다.");
         setLoading(false);
       });
   };
 
-  // 마크다운 헤딩을 간단히 파싱
+  // 텍스트를 깔끔하게 렌더링 (마크다운 기호 제거)
   const renderAnalysis = (text: string) => {
-    const lines = text.split("\n");
+    const cleaned = text
+      .replace(/#{1,4}\s*/g, "")
+      .replace(/\*\*([^*]+)\*\*/g, "$1")
+      .replace(/\*([^*]+)\*/g, "$1")
+      .replace(/^[-•]\s+/gm, "");
+
+    const lines = cleaned.split("\n");
     const elements: ReactElement[] = [];
 
     for (let i = 0; i < lines.length; i++) {
-      const line = lines[i];
+      const line = lines[i].trim();
 
-      if (line.startsWith("### ")) {
+      if (/^\d+\.\s+.+/.test(line) && line.length < 30) {
         elements.push(
           <h3
             key={i}
-            className="text-sm font-bold mt-4 mb-1.5 flex items-center gap-1.5"
+            className="text-[13px] font-bold mt-5 mb-2 tracking-tight"
             style={{ color: platformColor }}
           >
-            {line.replace("### ", "")}
+            {line}
           </h3>
         );
-      } else if (line.startsWith("## ")) {
-        elements.push(
-          <h2 key={i} className="text-base font-bold mt-4 mb-2" style={{ color: platformColor }}>
-            {line.replace("## ", "")}
-          </h2>
-        );
-      } else if (line.startsWith("- ")) {
-        elements.push(
-          <li key={i} className="text-sm text-foreground/90 leading-relaxed ml-4 list-disc">
-            {line.replace("- ", "")}
-          </li>
-        );
-      } else if (line.trim() === "") {
-        elements.push(<div key={i} className="h-1" />);
+      } else if (line === "") {
+        elements.push(<div key={i} className="h-2" />);
       } else {
         elements.push(
-          <p key={i} className="text-sm text-foreground/90 leading-relaxed">
+          <p key={i} className="text-[13px] text-foreground/85 leading-[1.8]">
             {line}
           </p>
         );
@@ -82,7 +76,7 @@ export function AiAnalysis({ platform, title, platformColor }: AiAnalysisProps) 
   return (
     <div className="bg-card rounded-xl border p-4 sm:p-6">
       <div className="flex items-center justify-between mb-4">
-        <h2 className="text-base font-bold">🤖 AI 작품 분석</h2>
+        <h2 className="text-base font-bold">작품 분석</h2>
         {!analysis && !loading && (
           <button
             onClick={handleAnalyze}
@@ -96,7 +90,7 @@ export function AiAnalysis({ platform, title, platformColor }: AiAnalysisProps) 
 
       {!analysis && !loading && !error && (
         <p className="text-sm text-muted-foreground text-center py-6">
-          수집된 랭킹, 리뷰, 독자층 데이터를 AI가 종합 분석합니다.
+          랭킹, 리뷰, 시장 데이터를 종합한 전문 분석을 제공합니다.
         </p>
       )}
 
@@ -106,7 +100,7 @@ export function AiAnalysis({ platform, title, platformColor }: AiAnalysisProps) 
             className="inline-block w-6 h-6 border-2 border-t-transparent rounded-full animate-spin mb-2"
             style={{ borderColor: platformColor, borderTopColor: "transparent" }}
           />
-          <p className="text-sm text-muted-foreground">AI가 데이터를 분석하고 있습니다...</p>
+          <p className="text-sm text-muted-foreground">데이터를 분석하고 있습니다...</p>
         </div>
       )}
 
@@ -115,7 +109,8 @@ export function AiAnalysis({ platform, title, platformColor }: AiAnalysisProps) 
           <p className="text-sm text-red-500 mb-2">{error}</p>
           <button
             onClick={handleAnalyze}
-            className="text-xs text-blue-500 hover:underline cursor-pointer"
+            className="text-xs hover:underline cursor-pointer"
+            style={{ color: platformColor }}
           >
             다시 시도
           </button>
@@ -123,13 +118,14 @@ export function AiAnalysis({ platform, title, platformColor }: AiAnalysisProps) 
       )}
 
       {analysis && (
-        <div className="space-y-0.5">
+        <div>
           {renderAnalysis(analysis)}
-          <div className="mt-4 pt-3 border-t text-xs text-muted-foreground flex items-center justify-between">
-            <span>Claude Haiku · 수집 데이터 기반 분석</span>
+          <div className="mt-5 pt-3 border-t text-xs text-muted-foreground flex items-center justify-between">
+            <span>수집 데이터 + 웹 검색 기반</span>
             <button
               onClick={handleAnalyze}
-              className="text-blue-500 hover:underline cursor-pointer"
+              className="hover:underline cursor-pointer"
+              style={{ color: platformColor }}
             >
               재분석
             </button>
