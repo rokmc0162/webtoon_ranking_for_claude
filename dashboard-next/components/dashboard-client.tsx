@@ -11,6 +11,8 @@ import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import { getPlatformById } from "@/lib/constants";
 import type { Ranking, PlatformStats } from "@/lib/types";
+import type { TrendReport } from "@/lib/trend-report";
+import { TrendReportCard } from "@/components/trend-report";
 
 interface DashboardClientProps {
   initialDates: string[];
@@ -19,6 +21,7 @@ interface DashboardClientProps {
   initialRiverseCounts: Record<string, number>;
   initialRankings: Ranking[];
   initialPlatform: string;
+  trendReport?: TrendReport | null;
 }
 
 export function DashboardClient({
@@ -28,6 +31,7 @@ export function DashboardClient({
   initialRiverseCounts,
   initialRankings,
   initialPlatform,
+  trendReport,
 }: DashboardClientProps) {
   const [dates] = useState<string[]>(initialDates);
   const [selectedDate, setSelectedDate] = useState(initialDate);
@@ -115,6 +119,11 @@ export function DashboardClient({
     <div className="min-h-screen bg-background">
       <div className="max-w-[1200px] mx-auto px-3 sm:px-6">
         <Header />
+
+        {/* 트렌드 리포트 */}
+        <div className="mt-4">
+          <TrendReportCard report={trendReport} />
+        </div>
 
         {/* 날짜 + 출처 */}
         <div className="flex items-center justify-between mt-4 mb-3">

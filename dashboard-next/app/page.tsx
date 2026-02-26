@@ -2,6 +2,7 @@ import { sql } from "@/lib/supabase";
 import type { Ranking, PlatformStats } from "@/lib/types";
 import { DashboardClient } from "@/components/dashboard-client";
 import { PLATFORMS } from "@/lib/constants";
+import { generateTrendReport } from "@/lib/trend-report";
 
 // ISR: 5분마다 백그라운드 재생성 → Vercel CDN이 캐시 → 첫 방문자도 즉시 응답
 export const revalidate = 300;
@@ -123,7 +124,10 @@ async function getInitialData(): Promise<InitialData | null> {
 }
 
 export default async function Home() {
-  const data = await getInitialData();
+  const [data, trendReport] = await Promise.all([
+    getInitialData(),
+    generateTrendReport(),
+  ]);
 
   if (!data || !data.latestDate) {
     return (
@@ -141,6 +145,7 @@ export default async function Home() {
       initialRiverseCounts={data.riverseCounts}
       initialRankings={data.rankings}
       initialPlatform={data.defaultPlatform}
+      trendReport={trendReport}
     />
   );
 }
