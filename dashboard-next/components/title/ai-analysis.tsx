@@ -77,34 +77,53 @@ export function AiAnalysis({ platform, title, platformColor }: AiAnalysisProps) 
       .replace(/\(DB\)/g, "")
       .replace(/\(웹 검색 기반\)/g, "");
 
-    const lines = cleaned.split("\n");
-    const elements: ReactElement[] = [];
+    // 섹션 단위로 파싱
+    const sections: { title: string; paragraphs: string[] }[] = [];
+    let currentSection: { title: string; paragraphs: string[] } | null = null;
+    let currentParagraph: string[] = [];
 
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i].trim();
+    const flushParagraph = () => {
+      if (currentParagraph.length > 0 && currentSection) {
+        currentSection.paragraphs.push(currentParagraph.join(" "));
+        currentParagraph = [];
+      }
+    };
 
-      if (/^\d+\.\s+.+/.test(line) && line.length < 30) {
-        elements.push(
-          <h3
-            key={i}
-            className="text-sm font-bold mt-6 mb-2 tracking-tight"
-            style={{ color: platformColor }}
-          >
-            {line}
-          </h3>
-        );
-      } else if (line === "") {
-        elements.push(<div key={i} className="h-1.5" />);
-      } else {
-        elements.push(
-          <p key={i} className="text-sm text-foreground/90 leading-[1.85]">
-            {line}
-          </p>
-        );
+    for (const line of cleaned.split("\n")) {
+      const trimLine = line.trim();
+      if (/^\d+\.\s+.+/.test(trimLine) && trimLine.length < 40) {
+        flushParagraph();
+        if (currentSection) sections.push(currentSection);
+        currentSection = { title: trimLine, paragraphs: [] };
+      } else if (trimLine === "") {
+        flushParagraph();
+      } else if (currentSection) {
+        currentParagraph.push(trimLine);
       }
     }
+    flushParagraph();
+    if (currentSection) sections.push(currentSection);
 
-    return elements;
+    return sections.map((section, si) => (
+      <div key={si} className={si > 0 ? "mt-7" : ""}>
+        <div
+          className="text-[13px] font-bold tracking-tight mb-3 pb-2 border-b"
+          style={{ color: platformColor, borderColor: `${platformColor}20` }}
+        >
+          {section.title}
+        </div>
+        <div className="space-y-2.5">
+          {section.paragraphs.map((p, pi) => (
+            <p
+              key={pi}
+              className="text-[13.5px] text-foreground/85 leading-[1.9] tracking-tight"
+            >
+              {p}
+            </p>
+          ))}
+        </div>
+      </div>
+    ));
   };
 
   return (

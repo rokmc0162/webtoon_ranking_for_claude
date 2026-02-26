@@ -71,7 +71,8 @@ export async function GET(request: NextRequest) {
 
   // 2. 플랫폼별 works 조회
   const worksRows = await sql`
-    SELECT platform, title, best_rank, rating, review_count, hearts, favorites
+    SELECT platform, title, best_rank, rating, review_count, hearts, favorites,
+           first_seen_date, last_seen_date, label
     FROM works WHERE unified_work_id = ${id}
   `;
 
@@ -96,34 +97,48 @@ export async function GET(request: NextRequest) {
 
   const rankData: string[] = [];
   for (const w of worksRows) {
+    const pName = PLATFORM_NAMES[w.platform] || w.platform;
+    const parts = [`[${pName}]`];
+    if (w.best_rank) parts.push(`최고${w.best_rank}위`);
+    if (w.rating) parts.push(`평점${w.rating}`);
+    if (w.review_count) parts.push(`리뷰${w.review_count}건`);
+    if (w.hearts) parts.push(`하트${w.hearts.toLocaleString()}`);
+    if (w.favorites) parts.push(`즐겨찾기${w.favorites.toLocaleString()}`);
+    if (w.first_seen_date) parts.push(`등장${w.first_seen_date}`);
+    if (w.last_seen_date) parts.push(`최근${w.last_seen_date}`);
+    if (w.label) parts.push(`레이블:${w.label}`);
+
     const rows = rankByPlatform.get(w.platform);
     if (rows && rows.length > 0) {
       const trend = rows.map((r) => `${r.date}: ${r.rank}위`).join(", ");
-      const pName = PLATFORM_NAMES[w.platform] || w.platform;
-      rankData.push(`[${pName}] 최고${w.best_rank || "?"}위, 평점${w.rating || "-"}, 리뷰${w.review_count || 0}건\n  추이: ${trend}`);
+      parts.push(`\n  추이: ${trend}`);
     }
+    rankData.push(parts.join(", "));
   }
 
-  // 4. 리뷰 샘플 (좋아요 높은 순 30건)
+  // 4. 리뷰 키워드 분석 (원문 인용 대신 통계적 요약)
   const reviewRows = await sql`
-    SELECT r.platform, r.reviewer_info, r.body, r.rating, r.likes_count, r.is_spoiler
+    SELECT r.platform, r.body, r.rating, r.likes_count
     FROM reviews r
     INNER JOIN works w ON w.platform = r.platform AND w.title = r.work_title
     WHERE w.unified_work_id = ${id}
       AND r.is_spoiler = FALSE AND LENGTH(r.body) > 10
     ORDER BY r.likes_count DESC, r.reviewed_at DESC NULLS LAST
-    LIMIT 30
+    LIMIT 50
   `;
 
-  const reviewSamples = reviewRows
-    .map((r) => {
-      const pName = PLATFORM_NAMES[r.platform] || r.platform;
-      const info = r.reviewer_info ? `[${r.reviewer_info}]` : "";
-      const star = r.rating ? `★${r.rating}` : "";
-      const likes = r.likes_count > 0 ? `(좋아요 ${r.likes_count})` : "";
-      return `${pName}${info}${star}${likes} ${r.body.slice(0, 200)}`;
-    })
-    .join("\n");
+  // 긍정/부정 리뷰 요약 (원문 노출 대신 평점별 건수 + 짧은 키워드)
+  const positiveCount = reviewRows.filter((r) => r.rating >= 4).length;
+  const negativeCount = reviewRows.filter((r) => r.rating && r.rating <= 2).length;
+  const neutralCount = reviewRows.filter((r) => r.rating === 3).length;
+  const avgBodyLen = reviewRows.length > 0
+    ? Math.round(reviewRows.reduce((s, r) => s + r.body.length, 0) / reviewRows.length)
+    : 0;
+  const highLikesCount = reviewRows.filter((r) => r.likes_count >= 10).length;
+
+  const reviewSummary = `긍정(★4~5): ${positiveCount}건, 부정(★1~2): ${negativeCount}건, 중립(★3): ${neutralCount}건
+좋아요 10+ 인기 리뷰: ${highLikesCount}건, 평균 리뷰 길이: ${avgBodyLen}자
+총 샘플: ${reviewRows.length}건 (좋아요순 상위 50건)`;
 
   // 5. 리뷰 통계
   const statsRows = await sql`
@@ -158,60 +173,54 @@ export async function GET(request: NextRequest) {
   const titleJa = worksRows.length > 0 ? worksRows[0].title : meta.title_canonical;
   const titleKr = meta.title_kr || "";
 
-  const prompt = `당신은 일본 만화/웹툰 시장을 10년 이상 분석해온 시니어 콘텐츠 애널리스트입니다.
-아래 데이터와 웹 검색 결과를 종합하여, 콘텐츠 사업 의사결정자에게 보고하는 수준의 분석을 작성하세요.
+  const prompt = `당신은 일본 디지털 만화/웹툰 시장 전문 애널리스트입니다.
+아래 정량 데이터를 근거로 분석 보고서를 작성하세요.
 
-웹 검색 키워드:
-1. "${titleJa} 漫画 評価"
+웹 검색으로 보완할 키워드:
+1. "${titleJa} 漫画"
 ${titleKr ? `2. "${titleKr} 웹툰"` : ""}
-3. "${titleJa} ピッコマ" 또는 "${titleJa} LINEマンガ"
 
-[데이터]
+[정량 데이터]
 제목: ${titleKr || meta.title_canonical || "미상"} / ${titleJa}
 작가: ${meta.author || "미상"} / 작화: ${meta.artist || "미상"}
 출판사: ${meta.publisher || "미상"}
 장르: ${meta.genre_kr || meta.genre || "미분류"}
 태그: ${meta.tags || "없음"}
-한국 원작 여부: ${meta.is_riverse ? "예" : "아니오"}
-시놉시스: ${meta.description ? meta.description.slice(0, 300) : "없음"}
+한국 원작: ${meta.is_riverse ? "예" : "아니오"}
 
-플랫폼별 현황 (${worksRows.length}개):
+플랫폼 전개 (${worksRows.length}개 플랫폼):
 ${rankData.join("\n") || "데이터 없음"}
 
-리뷰 통계: 총 ${stats.total || 0}건, 평균 ${stats.avg_rating || "N/A"}, 분포 ★5=${stats.star5||0} ★4=${stats.star4||0} ★3=${stats.star3||0} ★2=${stats.star2||0} ★1=${stats.star1||0}
+리뷰 통계: 총 ${stats.total || 0}건, 평균 ${stats.avg_rating || "N/A"}
+분포: ★5=${stats.star5||0} ★4=${stats.star4||0} ★3=${stats.star3||0} ★2=${stats.star2||0} ★1=${stats.star1||0}
+${reviewSummary}
 독자층: ${demographics || "데이터 없음"}
 
-리뷰 샘플:
-${reviewSamples || "없음"}
+[절대 규칙]
+1. 리뷰 원문이나 댓글을 절대 인용하지 마세요. 통계 수치만 활용하세요.
+2. 데이터가 부족하면 솔직하게 "데이터 부족으로 판단 보류"라고 쓰세요. 억지로 추론하지 마세요.
+3. 마크다운 기호 금지 (#, **, -, * 등). 섹션 제목은 "1. 제목" 형식만.
+4. 서론, 도입부, 검색 과정 언급 없이 바로 "1. 시장 포지션"부터 시작.
+5. 모호한 표현 금지. "~할 수 있습니다", "~로 보입니다" 대신 단정문.
+6. 빈 줄로 문단을 구분. 한 문단은 2~4문장으로 구성.
+7. 출처 표시 금지. (웹), (DB) 같은 태그 금지.
 
-[작성 규칙]
-- 마크다운 기호 절대 사용 금지. #, ##, ###, **, -, * 등 일체 사용하지 마세요.
-- 섹션 제목은 "1. 시장 포지션" 처럼 번호와 제목만 쓰세요. 앞뒤에 기호 없이.
-- 한 문장은 짧고 단정하게. 한 줄에 한 문장.
-- 빈 줄로 문단을 구분하세요.
-- 근거 없는 추측 금지. 데이터가 없으면 "확인 불가"로 처리.
-- 출처 표시 하지 마세요. (웹), (DB) 같은 태그 붙이지 마세요.
-- 검색 과정이나 분석 과정을 절대 언급하지 마세요. "웹 검색을 진행하여", "데이터를 수집하겠습니다", "분석을 작성하겠습니다" 같은 말 금지.
-- 바로 "1. 시장 포지션"부터 시작하세요. 서론이나 도입부 없이.
-- 전문 애널리스트가 경영진에게 브리핑하듯 쓰세요.
-- 절대로 AI가 쓴 티가 나면 안 됩니다. "~할 수 있습니다", "~로 보입니다" 같은 모호한 표현 대신 단정적으로 쓰세요.
-
-[섹션 구성]
+[섹션]
 
 1. 시장 포지션
-현재 이 작품의 일본 디지털 만화 시장 내 위치. 멀티 플랫폼 전개 상황. 랭킹 추이에서 읽히는 경쟁력.
+플랫폼 전개 현황과 랭킹 데이터 기반 분석. 구체적 수치 인용.
 
 2. 독자 반응
-리뷰 데이터와 웹 평판을 근거로 한 독자 평가. 긍정/부정 핵심 포인트.
+리뷰 통계(평점 분포, 긍정/부정 비율) 기반 분석. 리뷰 원문 인용 금지.
 
 3. 타겟 독자층
-성별/연령 데이터가 있으면 구체적으로. 없으면 "확인 불가"로 짧게 처리.
+성별/연령 데이터가 있으면 구체적으로. 없으면 "데이터 부족으로 판단 보류"로 짧게 처리.
 
-4. 경쟁력 분석
-이 작품이 시장에서 갖는 강점과 리스크. 동일 장르 내 차별화 요소.
+4. 경쟁력 요약
+데이터에서 읽히는 강점과 약점만 간결하게.
 
 5. 사업 전망
-2차 사업(애니화, 드라마화, 굿즈, 게임 등) 가능성. 해외 전개 잠재력. 향후 랭킹/매출 추이 전망.`;
+확인된 사실(애니화, 드라마화 등) 위주. 추측은 최소화.`;
 
   try {
     const response = await anthropic.messages.create({
