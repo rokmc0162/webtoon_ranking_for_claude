@@ -3,25 +3,30 @@ import { PLATFORMS } from "@/lib/constants";
 import { UnifiedWorkClient } from "@/components/work/unified-work-client";
 import type { Metadata } from "next";
 
-// 빌드 시 DB 연결 불가 → 런타임 렌더링 필수
-export const dynamic = "force-dynamic";
+// ISR: 10분마다 백그라운드 재생성 (CDN 캐시 → 첫 방문자도 즉시 응답)
+export const revalidate = 600;
 
 interface Props {
   params: Promise<{ id: string }>;
 }
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
-  const { id } = await params;
-  const rows = await sql`
-    SELECT title_kr, title_canonical FROM unified_works WHERE id = ${parseInt(id, 10)} LIMIT 1
-  `;
-  const title = rows.length > 0
-    ? `${rows[0].title_kr || rows[0].title_canonical} - 통합 작품 분석`
-    : "작품 분석";
-  return { title };
+  try {
+    const { id } = await params;
+    const rows = await sql`
+      SELECT title_kr, title_canonical FROM unified_works WHERE id = ${parseInt(id, 10)} LIMIT 1
+    `;
+    const title = rows.length > 0
+      ? `${rows[0].title_kr || rows[0].title_canonical} - 통합 작품 분석`
+      : "작품 분석";
+    return { title };
+  } catch {
+    return { title: "작품 분석" };
+  }
 }
 
 export default async function UnifiedWorkPage({ params }: Props) {
+ try {
   const { id } = await params;
   const numId = parseInt(id, 10);
 
@@ -258,4 +263,12 @@ export default async function UnifiedWorkPage({ params }: Props) {
       }}
     />
   );
+ } catch {
+    // 빌드 시 DB 연결 불가 → 빌드 통과 → 런타임 ISR 재생성
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <p className="text-muted-foreground">데이터를 불러오는 중...</p>
+      </div>
+    );
+  }
 }

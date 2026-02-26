@@ -2,27 +2,31 @@ import { sql } from "@/lib/supabase";
 import type { Ranking, PlatformStats } from "@/lib/types";
 import { DashboardClient } from "@/components/dashboard-client";
 import { PLATFORMS } from "@/lib/constants";
-import { unstable_cache } from "next/cache";
 
-// 빌드 시 DB 연결 불가 → 런타임 렌더링 필수
-export const dynamic = "force-dynamic";
+// ISR: 5분마다 백그라운드 재생성 → Vercel CDN이 캐시 → 첫 방문자도 즉시 응답
+export const revalidate = 300;
 
-// 데이터 함수 캐시: 동일 서버리스 인스턴스 내 5분간 DB 재조회 방지
-// Vercel CDN 캐시(headers)와 이중 캐시 구조로 대부분 요청을 즉시 응답
-const getInitialData = unstable_cache(
-  async () => {
+type InitialData = {
+  dates: string[];
+  latestDate: string;
+  stats: Record<string, PlatformStats>;
+  riverseCounts: Record<string, number>;
+  rankings: Ranking[];
+  defaultPlatform: string;
+};
+
+async function getInitialData(): Promise<InitialData | null> {
+  try {
     const defaultPlatform = "piccoma";
 
-    // 1. 날짜 목록 조회
     const dateRows = await sql`SELECT DISTINCT date::text as date FROM rankings ORDER BY date DESC`;
     const dates: string[] = dateRows.map((r) => String(r.date));
     const latestDate = dates[0] || "";
 
     if (!latestDate) {
-      return { dates, latestDate, stats: {} as Record<string, PlatformStats>, riverseCounts: {} as Record<string, number>, rankings: [] as Ranking[], defaultPlatform };
+      return { dates, latestDate, stats: {}, riverseCounts: {}, rankings: [], defaultPlatform };
     }
 
-    // 2. 통계 + 리버스카운트 + 랭킹 + 이전날짜를 병렬 조회
     const overallKeys = [...new Set(PLATFORMS.map((p) => p.genres[0]?.key ?? ""))];
 
     const [statsRows, riverseCountRows, rankingRows, prevDateRows] = await Promise.all([
@@ -62,7 +66,6 @@ const getInitialData = unstable_cache(
       riverseCounts[r.sub_category] = r.count;
     }
 
-    // 3. 랭킹 변동 + 썸네일을 병렬 조회
     const titles = rankingRows.map((r) => r.title);
     const [prevRankings, thumbRows] = await Promise.all([
       prevDateRows.length > 0
@@ -113,30 +116,31 @@ const getInitialData = unstable_cache(
     }));
 
     return { dates, latestDate, stats, riverseCounts, rankings, defaultPlatform };
-  },
-  ["home-initial-data"],
-  { revalidate: 300 }
-);
+  } catch {
+    // 빌드 시 DB 연결 불가 → null 반환 → 빌드 통과 → 런타임에 ISR 재생성
+    return null;
+  }
+}
 
 export default async function Home() {
-  const { dates, latestDate, stats, riverseCounts, rankings, defaultPlatform } = await getInitialData();
+  const data = await getInitialData();
 
-  if (!latestDate) {
+  if (!data || !data.latestDate) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
-        <p className="text-muted-foreground">데이터가 없습니다.</p>
+        <p className="text-muted-foreground">데이터를 불러오는 중...</p>
       </div>
     );
   }
 
   return (
     <DashboardClient
-      initialDates={dates}
-      initialDate={latestDate}
-      initialStats={stats}
-      initialRiverseCounts={riverseCounts}
-      initialRankings={rankings}
-      initialPlatform={defaultPlatform}
+      initialDates={data.dates}
+      initialDate={data.latestDate}
+      initialStats={data.stats}
+      initialRiverseCounts={data.riverseCounts}
+      initialRankings={data.rankings}
+      initialPlatform={data.defaultPlatform}
     />
   );
 }

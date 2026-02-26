@@ -3,8 +3,8 @@ import { PLATFORMS } from "@/lib/constants";
 import { notFound } from "next/navigation";
 import { TitleDetailClient } from "@/components/title/title-detail-client";
 
-// 동적 렌더링 강제
-export const dynamic = "force-dynamic";
+// ISR: 10분마다 재생성 → CDN 캐시로 첫 방문자도 즉시 응답
+export const revalidate = 600;
 
 interface PageProps {
   params: Promise<{ platform: string; encodedTitle: string }>;
@@ -12,6 +12,7 @@ interface PageProps {
 
 // 서버 컴포넌트: API 호출 대신 직접 DB 조회 → cold start 워터폴 제거
 export default async function TitleDetailPage({ params }: PageProps) {
+ try {
   const { platform, encodedTitle } = await params;
   const title = decodeURIComponent(encodedTitle);
 
@@ -244,4 +245,11 @@ export default async function TitleDetailPage({ params }: PageProps) {
   };
 
   return <TitleDetailClient data={data} />;
+ } catch {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <p className="text-muted-foreground">데이터를 불러오는 중...</p>
+      </div>
+    );
+  }
 }
