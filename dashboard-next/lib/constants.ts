@@ -5,7 +5,7 @@ export const PLATFORMS: PlatformInfo[] = [
     id: "piccoma",
     name: "픽코마",
     color: "#F5C518",
-    logo: "/piccoma.webp",
+    logo: "/piccoma.png",
     sourceUrl: "https://piccoma.com/web/ranking/S/P/0",
     genres: [
       { key: "", label: "총합" },
@@ -101,7 +101,7 @@ export const PLATFORMS: PlatformInfo[] = [
     id: "renta",
     name: "렌타",
     color: "#E91E63",
-    logo: "/renta.svg",
+    logo: "/renta.png",
     sourceUrl: "https://renta.papy.co.jp/renta/sc/frm/page/ranking_c.htm",
     genres: [
       { key: "", label: "종합" },
@@ -129,7 +129,7 @@ export const PLATFORMS: PlatformInfo[] = [
     id: "ebookjapan",
     name: "이북재팬",
     color: "#FF5722",
-    logo: "/ebookjapan.svg",
+    logo: "/ebookjapan.png",
     sourceUrl: "https://ebookjapan.yahoo.co.jp/ranking/",
     genres: [
       { key: "", label: "종합" },
@@ -160,7 +160,7 @@ export const PLATFORMS: PlatformInfo[] = [
     id: "beltoon",
     name: "벨툰",
     color: "#673AB7",
-    logo: "/beltoon.svg",
+    logo: "/beltoon.png",
     sourceUrl: "https://www.beltoon.jp/app/all/ranking",
     genres: [
       { key: "", label: "종합" },
