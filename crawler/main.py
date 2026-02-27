@@ -26,6 +26,7 @@ sys.path.insert(0, str(project_root))
 from crawler.orchestrator import CrawlerOrchestrator
 from crawler.db import init_db
 from crawler.verify import verify
+from crawler.utils import fill_missing_title_kr
 
 
 def main():
@@ -53,6 +54,13 @@ def main():
                 asyncio.run(run_detail_scraper(max_works=50))
             except Exception as e:
                 print(f"⚠️  상세 스크래핑 중 오류 (무시): {e}")
+
+            # title_kr 누락 작품 자동 번역
+            try:
+                print("\n🔤 title_kr 누락 작품 자동 번역...")
+                fill_missing_title_kr()
+            except Exception as e:
+                print(f"⚠️  자동 번역 중 오류 (무시): {e}")
 
         total = len(results)
         if success_count == 0:

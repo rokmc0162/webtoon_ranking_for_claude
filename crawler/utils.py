@@ -6,6 +6,8 @@
 """
 
 import json
+import os
+import time
 from pathlib import Path
 from typing import Optional
 
@@ -273,6 +275,177 @@ def translate_genre(jp_genre: str) -> str:
 
     # 매칭 실패 - 원문 그대로
     return jp_genre
+
+
+def _extract_json(text: str) -> dict:
+    """응답 텍스트에서 JSON 객체 추출 (robust)"""
+    text = text.strip()
+    if text.startswith("```"):
+        text = text.split("\n", 1)[1]
+        text = text.rsplit("```", 1)[0].strip()
+    start = text.find("{")
+    if start == -1:
+        return {}
+    depth = 0
+    for i in range(start, len(text)):
+        if text[i] == '{':
+            depth += 1
+        elif text[i] == '}':
+            depth -= 1
+            if depth == 0:
+                try:
+                    return json.loads(text[start:i+1])
+                except json.JSONDecodeError:
+                    break
+    return {}
+
+
+def fill_missing_title_kr():
+    """
+    크롤링 후 title_kr 누락 작품 자동 번역.
+    1. DB에서 title_kr 빈 고유 제목 수집
+    2. 기존 매핑으로 복구 가능한 것 먼저 적용
+    3. 나머지는 Claude API로 배치 번역
+    4. title_mappings.json + DB(works, rankings) 업데이트
+    """
+    try:
+        import anthropic
+    except ImportError:
+        print("⚠️  anthropic 패키지 없음 — 자동 번역 건너뜀")
+        return
+
+    from dotenv import load_dotenv
+    load_dotenv(project_root / '.env')
+    load_dotenv(project_root / 'dashboard-next' / '.env.local', override=True)
+
+    api_key = os.environ.get('ANTHROPIC_API_KEY', '')
+    db_url = os.environ.get('SUPABASE_DB_URL', '')
+    if not api_key or not db_url:
+        print("⚠️  API키 또는 DB URL 없음 — 자동 번역 건너뜀")
+        return
+
+    import psycopg2
+
+    # 1. DB에서 title_kr 누락 제목 수집
+    conn = psycopg2.connect(db_url)
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT DISTINCT title FROM works
+        WHERE (title_kr IS NULL OR title_kr = '')
+        ORDER BY title
+    """)
+    missing = [row[0] for row in cur.fetchall()]
+    conn.close()
+
+    if not missing:
+        print("✅ title_kr 누락 없음")
+        return
+
+    print(f"\n🔤 title_kr 누락: {len(missing)}개")
+
+    # 2. 기존 매핑으로 복구
+    mappings = load_title_mappings()
+    already_mapped = {}
+    still_missing = []
+    for t in missing:
+        kr = get_korean_title(t)
+        if kr:
+            already_mapped[t] = kr
+        else:
+            still_missing.append(t)
+
+    if already_mapped:
+        print(f"  🔄 기존 매핑 복구: {len(already_mapped)}개")
+        conn = psycopg2.connect(db_url)
+        cur = conn.cursor()
+        for jp, kr in already_mapped.items():
+            cur.execute("UPDATE works SET title_kr=%s WHERE title=%s AND (title_kr IS NULL OR title_kr='')", (kr, jp))
+            cur.execute("UPDATE rankings SET title_kr=%s WHERE title=%s AND (title_kr IS NULL OR title_kr='')", (kr, jp))
+        conn.commit()
+        conn.close()
+
+    if not still_missing:
+        print("✅ 모든 title_kr 복구 완료")
+        return
+
+    print(f"  🤖 번역 필요: {len(still_missing)}개")
+
+    # 3. Claude API 배치 번역
+    client = anthropic.Anthropic(api_key=api_key)
+    BATCH = 80
+    all_translations = {}
+
+    for i in range(0, len(still_missing), BATCH):
+        batch = still_missing[i:i+BATCH]
+        titles_text = "\n".join(f"{j+1}. {t}" for j, t in enumerate(batch))
+
+        for retry in range(3):
+            try:
+                resp = client.messages.create(
+                    model="claude-sonnet-4-20250514",
+                    max_tokens=8192,
+                    messages=[{"role": "user", "content": f"""다음 일본어 만화/웹툰 제목들을 한국어로 번역해주세요.
+
+규칙:
+- 한국 웹툰이 일본어로 번역된 것이면 원래 한국어 제목을 찾아서 적어주세요
+- 일본 원작이면 자연스러운 한국어로 번역해주세요
+- 영어 제목은 그대로 유지해도 됩니다
+- 고유명사(캐릭터명 등)는 음역하세요
+- 반드시 JSON 형식으로만 응답하세요: {{"원본제목": "한국어제목", ...}}
+- 다른 텍스트 없이 JSON만 출력하세요
+
+제목 목록:
+{titles_text}"""}]
+                )
+                result = _extract_json(resp.content[0].text)
+                if result:
+                    all_translations.update(result)
+                    print(f"  ✅ 배치 {i//BATCH+1}: {len(result)}개 번역")
+                    break
+            except Exception as e:
+                print(f"  ⚠️  배치 {i//BATCH+1} 오류 (재시도 {retry+1}/3): {e}")
+                time.sleep(3)
+
+        if i + BATCH < len(still_missing):
+            time.sleep(1)
+
+    if not all_translations:
+        print("⚠️  번역 결과 없음")
+        return
+
+    # 4. DB 업데이트
+    conn = psycopg2.connect(db_url)
+    cur = conn.cursor()
+    w_count = r_count = 0
+    for jp, kr in all_translations.items():
+        if not kr:
+            continue
+        cur.execute("UPDATE works SET title_kr=%s WHERE title=%s AND (title_kr IS NULL OR title_kr='')", (kr, jp))
+        w_count += cur.rowcount
+        cur.execute("UPDATE rankings SET title_kr=%s WHERE title=%s AND (title_kr IS NULL OR title_kr='')", (kr, jp))
+        r_count += cur.rowcount
+    conn.commit()
+    conn.close()
+
+    # 5. title_mappings.json 업데이트
+    mappings_path = project_root / 'data' / 'title_mappings.json'
+    with open(mappings_path, 'r', encoding='utf-8') as f:
+        mappings = json.load(f)
+    added = 0
+    for jp, kr in all_translations.items():
+        if kr and jp not in mappings:
+            mappings[jp] = kr
+            added += 1
+    sorted_mappings = dict(sorted(mappings.items()))
+    with open(mappings_path, 'w', encoding='utf-8') as f:
+        json.dump(sorted_mappings, f, ensure_ascii=False, indent=2)
+
+    # 매핑 캐시 무효화
+    global _title_mappings
+    _title_mappings = None
+
+    print(f"  💾 DB: works {w_count}행, rankings {r_count}행 업데이트")
+    print(f"  📁 매핑: {added}개 추가 (총 {len(sorted_mappings)}개)")
 
 
 if __name__ == "__main__":
