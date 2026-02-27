@@ -370,14 +370,16 @@ def fill_missing_title_kr():
 
     print(f"  🤖 번역 필요: {len(still_missing)}개")
 
-    # 3. Claude API 배치 번역
+    # 3. Claude API 배치 번역 (매 배치 후 즉시 저장)
     client = anthropic.Anthropic(api_key=api_key)
     BATCH = 80
-    all_translations = {}
+    total_translated = 0
+    mappings_path = project_root / 'data' / 'title_mappings.json'
 
     for i in range(0, len(still_missing), BATCH):
         batch = still_missing[i:i+BATCH]
         titles_text = "\n".join(f"{j+1}. {t}" for j, t in enumerate(batch))
+        result = {}
 
         for retry in range(3):
             try:
@@ -399,53 +401,57 @@ def fill_missing_title_kr():
                 )
                 result = _extract_json(resp.content[0].text)
                 if result:
-                    all_translations.update(result)
-                    print(f"  ✅ 배치 {i//BATCH+1}: {len(result)}개 번역")
                     break
             except Exception as e:
+                if 'credit balance' in str(e).lower() or '400' in str(e):
+                    print(f"  ❌ API 크레딧 부족 — 중단")
+                    break
                 print(f"  ⚠️  배치 {i//BATCH+1} 오류 (재시도 {retry+1}/3): {e}")
                 time.sleep(3)
+        else:
+            if not result:
+                continue
+
+        if not result:
+            break  # credit exhaustion
+
+        # 즉시 DB 저장
+        conn = psycopg2.connect(db_url)
+        cur = conn.cursor()
+        w_count = r_count = 0
+        for jp, kr in result.items():
+            if not kr:
+                continue
+            cur.execute("UPDATE works SET title_kr=%s WHERE title=%s AND (title_kr IS NULL OR title_kr='')", (kr, jp))
+            w_count += cur.rowcount
+            cur.execute("UPDATE rankings SET title_kr=%s WHERE title=%s AND (title_kr IS NULL OR title_kr='')", (kr, jp))
+            r_count += cur.rowcount
+        conn.commit()
+        conn.close()
+
+        # 즉시 매핑 JSON 저장
+        with open(mappings_path, 'r', encoding='utf-8') as f:
+            current_mappings = json.load(f)
+        added = 0
+        for jp, kr in result.items():
+            if kr and jp not in current_mappings:
+                current_mappings[jp] = kr
+                added += 1
+        sorted_m = dict(sorted(current_mappings.items()))
+        with open(mappings_path, 'w', encoding='utf-8') as f:
+            json.dump(sorted_m, f, ensure_ascii=False, indent=2)
+
+        total_translated += len(result)
+        print(f"  ✅ 배치 {i//BATCH+1}: {len(result)}개 번역 / DB: w{w_count} r{r_count} / 매핑: +{added}")
 
         if i + BATCH < len(still_missing):
             time.sleep(1)
-
-    if not all_translations:
-        print("⚠️  번역 결과 없음")
-        return
-
-    # 4. DB 업데이트
-    conn = psycopg2.connect(db_url)
-    cur = conn.cursor()
-    w_count = r_count = 0
-    for jp, kr in all_translations.items():
-        if not kr:
-            continue
-        cur.execute("UPDATE works SET title_kr=%s WHERE title=%s AND (title_kr IS NULL OR title_kr='')", (kr, jp))
-        w_count += cur.rowcount
-        cur.execute("UPDATE rankings SET title_kr=%s WHERE title=%s AND (title_kr IS NULL OR title_kr='')", (kr, jp))
-        r_count += cur.rowcount
-    conn.commit()
-    conn.close()
-
-    # 5. title_mappings.json 업데이트
-    mappings_path = project_root / 'data' / 'title_mappings.json'
-    with open(mappings_path, 'r', encoding='utf-8') as f:
-        mappings = json.load(f)
-    added = 0
-    for jp, kr in all_translations.items():
-        if kr and jp not in mappings:
-            mappings[jp] = kr
-            added += 1
-    sorted_mappings = dict(sorted(mappings.items()))
-    with open(mappings_path, 'w', encoding='utf-8') as f:
-        json.dump(sorted_mappings, f, ensure_ascii=False, indent=2)
 
     # 매핑 캐시 무효화
     global _title_mappings
     _title_mappings = None
 
-    print(f"  💾 DB: works {w_count}행, rankings {r_count}행 업데이트")
-    print(f"  📁 매핑: {added}개 추가 (총 {len(sorted_mappings)}개)")
+    print(f"  📊 총 {total_translated}개 번역 완료")
 
 
 if __name__ == "__main__":

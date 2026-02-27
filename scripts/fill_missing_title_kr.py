@@ -201,9 +201,9 @@ def main():
         print("✅ 모든 제목 복구 완료!")
         return
 
-    # 2. 배치 번역
+    # 2. 배치 번역 (매 배치 후 즉시 DB + JSON 저장)
     client = anthropic.Anthropic(api_key=API_KEY)
-    all_translations = {}
+    total_translated = 0
 
     for i in range(0, len(still_missing), BATCH_SIZE):
         batch = still_missing[i:i + BATCH_SIZE]
@@ -211,28 +211,31 @@ def main():
         total_batches = (len(still_missing) + BATCH_SIZE - 1) // BATCH_SIZE
         print(f"\n📝 배치 {batch_num}/{total_batches} ({len(batch)}개 번역 중)...")
 
-        translations = translate_batch(client, batch)
-        all_translations.update(translations)
-        print(f"   ✅ {len(translations)}개 번역 완료")
+        try:
+            translations = translate_batch(client, batch)
+        except Exception as e:
+            print(f"   ❌ API 오류로 중단: {e}")
+            break
+
+        if translations:
+            print(f"   ✅ {len(translations)}개 번역 완료")
+            # 즉시 DB + JSON 저장
+            w, r = update_db(translations)
+            added, total = update_mappings(translations)
+            print(f"   💾 DB: works {w}행, rankings {r}행 / 매핑: +{added} (총 {total})")
+            total_translated += len(translations)
+        else:
+            print(f"   ⚠️ 번역 결과 없음")
 
         if i + BATCH_SIZE < len(still_missing):
             time.sleep(1)  # rate limit 대비
 
-    # 3. DB 업데이트
-    print(f"\n💾 DB 업데이트 중...")
-    w, r = update_db(all_translations)
-    print(f"   works: {w}행, rankings: {r}행 업데이트")
-
-    # 4. title_mappings.json 업데이트
-    added, total = update_mappings(all_translations)
-    print(f"\n📁 title_mappings.json: {added}개 추가 (총 {total}개)")
-
-    # 5. 결과 요약
+    # 결과 요약
     print(f"\n{'=' * 60}")
     print(f"✅ 완료!")
     print(f"   기존 매핑 복구: {len(already_mapped)}개")
-    print(f"   신규 번역: {len(all_translations)}개")
-    print(f"   총 처리: {len(already_mapped) + len(all_translations)}개")
+    print(f"   신규 번역: {total_translated}개")
+    print(f"   총 처리: {len(already_mapped) + total_translated}개")
 
 
 if __name__ == "__main__":
