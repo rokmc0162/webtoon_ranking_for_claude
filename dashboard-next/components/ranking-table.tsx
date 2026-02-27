@@ -113,12 +113,6 @@ export function RankingTable({
             >
               장르
             </th>
-            <th
-              style={{ width: 56 }}
-              className="h-10 px-2 text-center font-medium text-foreground"
-            >
-              분석
-            </th>
           </tr>
         </thead>
         <motion.tbody
@@ -200,17 +194,6 @@ export function RankingTable({
                 )}
               </td>
 
-              {/* 분석 페이지 링크 */}
-              <td className="py-2 px-2 text-center align-middle">
-                <Link
-                  href={r.unified_work_id ? `/work/${r.unified_work_id}` : `/title/${platform}/${encodeURIComponent(r.title)}`}
-                  target="_blank"
-                  className="text-xl opacity-60 hover:opacity-100 transition-opacity"
-                  title="작품 상세 분석"
-                >
-                  📊
-                </Link>
-              </td>
             </motion.tr>
           ))}
         </motion.tbody>
