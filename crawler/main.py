@@ -23,15 +23,19 @@ import sys
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
+import time
 from crawler.orchestrator import CrawlerOrchestrator
 from crawler.db import init_db
 from crawler.verify import verify
 from crawler.utils import fill_missing_title_kr
+from crawler.notify import notify_crawl_complete
 
 
 def main():
     """메인 함수"""
     try:
+        start_time = time.time()
+
         # DB 연결 확인
         init_db()
 
@@ -63,6 +67,14 @@ def main():
                 print(f"⚠️  자동 번역 중 오류 (무시): {e}")
 
         total = len(results)
+        elapsed = time.time() - start_time
+
+        # Slack 알림 전송
+        try:
+            notify_crawl_complete(results, elapsed)
+        except Exception as e:
+            print(f"⚠️  Slack 알림 전송 실패 (무시): {e}")
+
         if success_count == 0:
             print("⚠️  모든 플랫폼 크롤링 실패")
             sys.exit(1)
