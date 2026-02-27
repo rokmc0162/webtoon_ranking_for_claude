@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { motion, AnimatePresence } from "framer-motion";
 import { Header } from "@/components/header";
 import { DateSelector } from "@/components/date-selector";
 import { PlatformTabs } from "@/components/platform-tabs";
@@ -10,6 +11,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import { getPlatformById } from "@/lib/constants";
+import { staggerContainer, fadeSlideUp, contentSwap } from "@/lib/motion";
 import type { Ranking, PlatformStats } from "@/lib/types";
 import type { TrendReport } from "@/lib/trend-report";
 import { TrendReportCard } from "@/components/trend-report";
@@ -95,7 +97,6 @@ export function DashboardClient({
   }, [selectedDate, selectedPlatform, selectedGenre, isInitialState, initialRankings]);
 
   // 플랫폼 변경 시 장르를 해당 플랫폼의 첫 번째 장르로 설정
-  // 대부분 플랫폼은 첫 장르가 "" (종합), Asura는 "all" (All-time)
   const handlePlatformChange = (id: string) => {
     setSelectedPlatform(id);
     const pInfo = getPlatformById(id);
@@ -116,17 +117,24 @@ export function DashboardClient({
   const sourceUrl = platform?.sourceUrl || "";
 
   return (
-    <div className="min-h-screen bg-background">
+    <motion.div
+      className="min-h-screen bg-background"
+      variants={staggerContainer}
+      initial="hidden"
+      animate="show"
+    >
       <div className="max-w-[1200px] mx-auto px-3 sm:px-6">
-        <Header />
+        <motion.div variants={fadeSlideUp}>
+          <Header />
+        </motion.div>
 
         {/* 트렌드 리포트 */}
-        <div className="mt-4">
+        <motion.div variants={fadeSlideUp} className="mt-4">
           <TrendReportCard report={trendReport} />
-        </div>
+        </motion.div>
 
         {/* 날짜 + 출처 */}
-        <div className="flex items-center justify-between mt-4 mb-3">
+        <motion.div variants={fadeSlideUp} className="flex items-center justify-between mt-4 mb-3">
           <DateSelector
             dates={dates}
             selected={selectedDate}
@@ -142,18 +150,20 @@ export function DashboardClient({
               📎 데이터 출처: {platform?.name}
             </a>
           )}
-        </div>
+        </motion.div>
 
         {/* 플랫폼 탭 */}
-        <PlatformTabs
-          selected={selectedPlatform}
-          onSelect={handlePlatformChange}
-          stats={stats}
-        />
+        <motion.div variants={fadeSlideUp}>
+          <PlatformTabs
+            selected={selectedPlatform}
+            onSelect={handlePlatformChange}
+            stats={stats}
+          />
+        </motion.div>
 
         {/* 장르 필터 */}
         {platform && platform.genres.length > 1 && (
-          <div className="mt-3">
+          <motion.div variants={fadeSlideUp} className="mt-3">
             <GenrePills
               genres={platform.genres}
               selected={selectedGenre}
@@ -161,11 +171,11 @@ export function DashboardClient({
               platformColor={platformColor}
               riverseCounts={riverseCounts}
             />
-          </div>
+          </motion.div>
         )}
 
         {/* 필터 바 */}
-        <div className="flex items-center justify-between mt-4 mb-2">
+        <motion.div variants={fadeSlideUp} className="flex items-center justify-between mt-4 mb-2">
           <div className="text-sm font-medium text-foreground">
             <span className="font-bold" style={{ color: platformColor }}>
               {platform?.name}
@@ -192,22 +202,39 @@ export function DashboardClient({
               리버스 작품만
             </label>
           </div>
-        </div>
+        </motion.div>
 
         {/* 랭킹 테이블 */}
-        {loading ? (
-          <div className="space-y-3 mt-4">
-            {Array.from({ length: 10 }).map((_, i) => (
-              <Skeleton key={i} className="h-[72px] w-full rounded-lg" />
-            ))}
-          </div>
-        ) : (
-          <RankingTable
-            rankings={displayRankings}
-            platformColor={platformColor}
-            platform={selectedPlatform}
-          />
-        )}
+        <AnimatePresence mode="wait">
+          {loading ? (
+            <motion.div
+              key="skeleton"
+              variants={contentSwap}
+              initial="enter"
+              animate="center"
+              exit="exit"
+              className="space-y-3 mt-4"
+            >
+              {Array.from({ length: 10 }).map((_, i) => (
+                <Skeleton key={i} className="h-[72px] w-full rounded-lg" />
+              ))}
+            </motion.div>
+          ) : (
+            <motion.div
+              key={`table-${selectedPlatform}-${selectedGenre}`}
+              variants={contentSwap}
+              initial="enter"
+              animate="center"
+              exit="exit"
+            >
+              <RankingTable
+                rankings={displayRankings}
+                platformColor={platformColor}
+                platform={selectedPlatform}
+              />
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         {/* 푸터 */}
         <Separator className="mt-8" />
@@ -215,6 +242,6 @@ export function DashboardClient({
           RIVERSE Inc. | 데이터: Supabase PostgreSQL | 매일 자동 수집
         </footer>
       </div>
-    </div>
+    </motion.div>
   );
 }

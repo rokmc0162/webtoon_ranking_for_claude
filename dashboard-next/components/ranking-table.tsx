@@ -1,10 +1,12 @@
 "use client";
 
 import { useState } from "react";
+import { motion } from "framer-motion";
 import Link from "next/link";
 import { RankBadge } from "./rank-badge";
 import { RankChange } from "./rank-change";
 import { RiverseBadge } from "./riverse-badge";
+import { tableContainer, tableRowVariant } from "@/lib/motion";
 import type { Ranking } from "@/lib/types";
 
 interface RankingTableProps {
@@ -119,10 +121,15 @@ export function RankingTable({
             </th>
           </tr>
         </thead>
-        <tbody>
+        <motion.tbody
+          variants={tableContainer}
+          initial="hidden"
+          animate="show"
+        >
           {rankings.map((r) => (
-            <tr
+            <motion.tr
               key={r.rank}
+              variants={tableRowVariant}
               className="border-b hover:bg-muted/30 transition-colors"
             >
               {/* 순위 */}
@@ -204,9 +211,9 @@ export function RankingTable({
                   📊
                 </Link>
               </td>
-            </tr>
+            </motion.tr>
           ))}
-        </tbody>
+        </motion.tbody>
       </table>
     </div>
   );

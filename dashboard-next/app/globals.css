@@ -96,3 +96,49 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* ── Shimmer skeleton ──────────────────────────── */
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+.skeleton-shimmer {
+  background: linear-gradient(
+    90deg,
+    hsl(220 14% 94%) 25%,
+    hsl(220 13% 91%) 50%,
+    hsl(220 14% 94%) 75%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.8s ease-in-out infinite;
+}
+
+/* ── Header gradient line ──────────────────────── */
+@keyframes gradient-slide {
+  0%, 100% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+}
+
+.header-gradient-line::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, #F5C518, #06C755, #00B4D8, #FF6B00, #E91E63, #673AB7, #0D3B70);
+  background-size: 200% 100%;
+  animation: gradient-slide 6s ease-in-out infinite;
+}
+
+/* ── Reduced motion ────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  .skeleton-shimmer {
+    animation: none;
+    background: hsl(220 14% 94%);
+  }
+  .header-gradient-line::after {
+    animation: none;
+  }
+}
