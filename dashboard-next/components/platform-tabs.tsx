@@ -13,20 +13,20 @@ interface PlatformTabsProps {
 
 export function PlatformTabs({ selected, onSelect, stats }: PlatformTabsProps) {
   return (
-    <div className="grid grid-cols-4 sm:grid-cols-6 gap-2 sm:gap-3">
+    <div className="flex flex-wrap gap-2 sm:gap-3 justify-center">
       {PLATFORMS.map((p) => {
         const isActive = selected === p.id;
-        const stat = stats[p.id];
         return (
           <button
             key={p.id}
             onClick={() => onSelect(p.id)}
+            title={p.name}
             className={cn(
-              "flex flex-col items-center gap-1.5 rounded-xl p-2 sm:p-3 transition-all cursor-pointer",
-              "border-2 hover:shadow-md",
+              "rounded-2xl p-1.5 sm:p-2 transition-all cursor-pointer",
+              "border-2 hover:shadow-md hover:scale-105",
               isActive
-                ? "shadow-lg"
-                : "border-border bg-white hover:bg-muted"
+                ? "shadow-lg scale-105"
+                : "border-transparent bg-white hover:bg-muted"
             )}
             style={
               isActive
@@ -42,31 +42,17 @@ export function PlatformTabs({ selected, onSelect, stats }: PlatformTabsProps) {
               <Image
                 src={p.logo}
                 alt={p.name}
-                width={48}
-                height={48}
-                className="rounded-xl object-contain w-10 h-10 sm:w-12 sm:h-12"
+                width={56}
+                height={56}
+                className="rounded-xl object-contain w-11 h-11 sm:w-14 sm:h-14"
               />
             ) : (
               <div
-                className="rounded-xl w-10 h-10 sm:w-12 sm:h-12 flex items-center justify-center text-white font-bold text-lg"
+                className="rounded-xl w-11 h-11 sm:w-14 sm:h-14 flex items-center justify-center text-white font-bold text-xl"
                 style={{ backgroundColor: p.color }}
               >
                 {p.name.charAt(0)}
               </div>
-            )}
-            <span
-              className={cn(
-                "text-[10px] sm:text-xs font-bold leading-tight text-center",
-                !isActive && "text-foreground"
-              )}
-              style={isActive ? { color: p.color } : undefined}
-            >
-              {p.name}
-            </span>
-            {stat && (
-              <span className="text-[9px] sm:text-[10px] text-muted-foreground">
-                {stat.total}개
-              </span>
             )}
           </button>
         );
