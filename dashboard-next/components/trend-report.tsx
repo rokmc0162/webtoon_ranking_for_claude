@@ -193,7 +193,7 @@ function RiverseCard({ report }: { report: TrendReport }) {
                   <div key={`rv-top-${i}`} className="flex items-center gap-2 text-sm py-0.5">
                     <RankBadge rank={w.rank} />
                     <WorkLink unifiedWorkId={w.unified_work_id}>
-                      <span className="font-medium truncate">{w.title_kr || w.title}</span>
+                      <span className="font-medium truncate">{w.title}</span>
                     </WorkLink>
                     <PlatformBadge platform={w.platform} />
                     <RankChange change={w.rank_change} />
@@ -211,7 +211,7 @@ function RiverseCard({ report }: { report: TrendReport }) {
                 {riverse.rising.map((w, i) => (
                   <div key={`rv-rise-${i}`} className="flex items-center gap-2 text-sm py-0.5">
                     <WorkLink unifiedWorkId={w.unified_work_id}>
-                      <span className="font-medium truncate">{w.title_kr || w.title}</span>
+                      <span className="font-medium truncate">{w.title}</span>
                     </WorkLink>
                     <span className="text-muted-foreground text-xs shrink-0 font-mono">
                       {w.prev_rank}→{w.curr_rank}
@@ -232,7 +232,7 @@ function RiverseCard({ report }: { report: TrendReport }) {
                 {riverse.new_entries.map((w, i) => (
                   <div key={`rv-new-${i}`} className="flex items-center gap-2 text-sm py-0.5">
                     <WorkLink unifiedWorkId={w.unified_work_id}>
-                      <span className="font-medium truncate">{w.title_kr || w.title}</span>
+                      <span className="font-medium truncate">{w.title}</span>
                     </WorkLink>
                     <PlatformBadge platform={w.platform} />
                     <span className="text-muted-foreground text-xs shrink-0 font-mono">#{w.rank}</span>
@@ -251,7 +251,7 @@ function RiverseCard({ report }: { report: TrendReport }) {
                   <div key={`rv-multi-${i}`} className="text-sm">
                     <div className="flex items-center gap-2 mb-0.5">
                       <WorkLink unifiedWorkId={w.unified_work_id}>
-                        <span className="font-medium">{w.title_kr}</span>
+                        <span className="font-medium">{w.title}</span>
                       </WorkLink>
                       <span className="text-muted-foreground text-xs">({w.platform_count}개 플랫폼)</span>
                     </div>
@@ -340,7 +340,7 @@ function MarketCard({ report }: { report: TrendReport }) {
                   <div key={`mk-top1-${i}`} className="flex items-center gap-2 text-sm py-1 px-2 rounded-lg bg-muted/40">
                     <PlatformBadge platform={w.platform} />
                     <WorkLink unifiedWorkId={w.unified_work_id}>
-                      <span className="font-medium truncate text-xs">{w.title_kr || w.title}</span>
+                      <span className="font-medium truncate text-xs">{w.title}</span>
                     </WorkLink>
                     {w.is_riverse && <RvTag />}
                   </div>
@@ -357,7 +357,7 @@ function MarketCard({ report }: { report: TrendReport }) {
                 {market.top_rising.map((w, i) => (
                   <div key={`mk-rise-${i}`} className="flex items-center gap-2 text-sm py-0.5">
                     <WorkLink unifiedWorkId={w.unified_work_id}>
-                      <span className="font-medium truncate">{w.title_kr || w.title}</span>
+                      <span className="font-medium truncate">{w.title}</span>
                     </WorkLink>
                     <span className="text-muted-foreground text-xs shrink-0 font-mono">
                       {w.prev_rank}→{w.curr_rank}
@@ -379,7 +379,7 @@ function MarketCard({ report }: { report: TrendReport }) {
                 {market.new_entries.map((w, i) => (
                   <div key={`mk-new-${i}`} className="flex items-center gap-2 text-sm py-0.5">
                     <WorkLink unifiedWorkId={w.unified_work_id}>
-                      <span className="font-medium truncate">{w.title_kr || w.title}</span>
+                      <span className="font-medium truncate">{w.title}</span>
                     </WorkLink>
                     <PlatformBadge platform={w.platform} />
                     <span className="text-muted-foreground text-xs shrink-0 font-mono">#{w.rank}</span>
@@ -399,7 +399,7 @@ function MarketCard({ report }: { report: TrendReport }) {
                   <div key={`mk-multi-${i}`} className="text-sm">
                     <div className="flex items-center gap-2 mb-0.5">
                       <WorkLink unifiedWorkId={w.unified_work_id}>
-                        <span className="font-medium">{w.title_kr}</span>
+                        <span className="font-medium">{w.title}</span>
                       </WorkLink>
                       <span className="text-muted-foreground text-xs">({w.platform_count}개 플랫폼)</span>
                     </div>

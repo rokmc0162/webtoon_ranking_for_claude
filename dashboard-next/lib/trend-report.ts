@@ -55,6 +55,7 @@ interface NewEntry {
 }
 
 interface MultiPlatformWork {
+  title: string;
   title_kr: string;
   platforms: { platform: string; platform_name: string; rank: number }[];
   platform_count: number;
@@ -181,6 +182,7 @@ export async function generateTrendReport(): Promise<TrendReport | null> {
       // 5) Multi-platform (3+ platforms)
       sql`
         SELECT uw.title_kr, uw.id as unified_work_id, uw.is_riverse,
+               (array_agg(r.title ORDER BY r.rank))[1] as rep_title,
                json_agg(json_build_object('platform', r.platform, 'rank', r.rank::int) ORDER BY r.rank) as platforms
         FROM rankings r
         INNER JOIN works w ON r.title = w.title AND r.platform = w.platform
@@ -246,6 +248,7 @@ export async function generateTrendReport(): Promise<TrendReport | null> {
     const allMulti: MultiPlatformWork[] = allMultiPlatformRows.map((r) => {
       const platforms = (typeof r.platforms === "string" ? JSON.parse(r.platforms) : r.platforms) as { platform: string; rank: number }[];
       return {
+        title: r.rep_title || r.title_kr,
         title_kr: r.title_kr,
         platforms: platforms.map((p) => ({ platform: p.platform, platform_name: platformName(p.platform), rank: p.rank })),
         platform_count: platforms.length,
@@ -352,11 +355,10 @@ function buildRiverseSummary(d: {
   // 최고 순위
   if (d.topRanked.length > 0) {
     const t = d.topRanked[0];
-    const name = t.title_kr || t.title;
     if (t.rank <= 3) {
-      lines.push(`${t.platform_name} ${t.rank}위 «${name}» — 선두 유지`);
+      lines.push(`${t.platform_name} ${t.rank}위 «${t.title}» — 선두 유지`);
     } else {
-      lines.push(`최고 순위: ${t.platform_name} ${t.rank}위 «${name}»`);
+      lines.push(`최고 순위: ${t.platform_name} ${t.rank}위 «${t.title}»`);
     }
   }
 
@@ -372,8 +374,7 @@ function buildRiverseSummary(d: {
   // 급상승
   if (d.rising.length > 0) {
     const r = d.rising[0];
-    const name = r.title_kr || r.title;
-    lines.push(`급상승 «${name}» ${r.prev_rank}→${r.curr_rank}위 (+${r.change})`);
+    lines.push(`급상승 «${r.title}» ${r.prev_rank}→${r.curr_rank}위 (+${r.change})`);
   }
 
   return lines.join("\n");
@@ -392,8 +393,7 @@ function buildMarketSummary(d: {
   // 급상승
   if (d.rising.length > 0) {
     const r = d.rising[0];
-    const name = r.title_kr || r.title;
-    lines.push(`최대 급상승 «${name}» +${r.change}계단 (${r.platform_name})`);
+    lines.push(`최대 급상승 «${r.title}» +${r.change}계단 (${r.platform_name})`);
     if (d.rising.length > 2) {
       lines.push(`5위 이상 상승 ${d.rising.length}작품`);
     }
@@ -404,7 +404,7 @@ function buildMarketSummary(d: {
     const top = d.newEntries.filter((w) => w.rank <= 3);
     if (top.length > 0) {
       const w = top[0];
-      lines.push(`신규 주목 «${w.title_kr || w.title}» ${w.platform_name} ${w.rank}위 진입`);
+      lines.push(`신규 주목 «${w.title}» ${w.platform_name} ${w.rank}위 진입`);
     }
     lines.push(`TOP 30 신규 ${d.newEntries.length}작품`);
   }
@@ -412,7 +412,7 @@ function buildMarketSummary(d: {
   // 멀티플랫폼
   if (d.multiPlatform.length > 0) {
     const m = d.multiPlatform[0];
-    lines.push(`«${m.title_kr}» ${m.platform_count}개 플랫폼 동시 랭크인`);
+    lines.push(`«${m.title}» ${m.platform_count}개 플랫폼 동시 랭크인`);
   }
 
   return lines.join("\n");
