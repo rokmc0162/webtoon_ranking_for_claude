@@ -19,8 +19,8 @@ logging.basicConfig(
 )
 logger = logging.getLogger('crawler.orchestrator')
 
-# 전체 플랫폼 수 (시모아 어덜트는 코믹시모아에 통합)
-TOTAL_PLATFORMS = 11
+# 전체 플랫폼 수 (시모아 어덜트는 코믹시모아에 통합, 라인망가앱 포함)
+TOTAL_PLATFORMS = 12
 
 
 class CrawlerOrchestrator:
@@ -63,13 +63,14 @@ class CrawlerOrchestrator:
         from crawler.agents.lezhin_agent import LezhinAgent
         from crawler.agents.beltoon_agent import BeltoonAgent
         from crawler.agents.unext_agent import UnextAgent
+        from crawler.agents.linemanga_app_agent import LinemangaAppAgent
 
         # Initialize browser
         async with async_playwright() as p:
             browser = await p.chromium.launch(headless=True)
 
             try:
-                # Create agent instances (12개 플랫폼)
+                # Create agent instances (12+1 플랫폼, ADB 에이전트 포함)
                 agents = [
                     # 기존 4개 플랫폼
                     PiccomaAgent(),
@@ -84,6 +85,8 @@ class CrawlerOrchestrator:
                     LezhinAgent(),
                     BeltoonAgent(),
                     UnextAgent(),
+                    # ADB 기반 (디바이스 미연결 시 자동 skip)
+                    LinemangaAppAgent(),
                 ]
 
                 total = len(agents)
