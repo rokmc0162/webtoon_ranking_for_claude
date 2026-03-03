@@ -631,7 +631,7 @@ class LinemangaAppAgent(CrawlerAgent):
                         try:
                             if self._navigate_to_tab(tab_name):
                                 time.sleep(2)
-                                tab_rankings = self._collect_tab_rankings(capture_thumbs=False)
+                                tab_rankings = self._collect_tab_rankings(capture_thumbs=True)
                                 self.genre_results[compound_key] = tab_rankings
                                 self.logger.info(f"  ✅ [{gender_label}·{label}]: {len(tab_rankings)}개")
                             else:
@@ -718,15 +718,15 @@ class LinemangaAppAgent(CrawlerAgent):
             save_works_metadata(self.platform_id, works_meta, date=date, sub_category='')
         backup_to_json(date, self.platform_id, data)
 
-        # 모든 전체(すべて) 탭의 썸네일 base64 저장
+        # 모든 탭(전체+장르)의 썸네일 base64 저장
         thumb_count = 0
         try:
             from crawler.db import save_thumbnail_base64
-            # 종합 전체 + 여성/남성 전체의 썸네일 저장
+            # 종합 전체 + 모든 장르/성별 탭의 썸네일 저장
             all_thumb_sources = [data]  # 종합 전체
-            for gk in ['女性', '男性']:
-                if gk in self.genre_results and self.genre_results[gk]:
-                    all_thumb_sources.append(self.genre_results[gk])
+            for gk, rankings in self.genre_results.items():
+                if gk != '' and rankings:  # '' = 종합 전체 (이미 data에 포함)
+                    all_thumb_sources.append(rankings)
 
             saved_titles = set()
             for source in all_thumb_sources:
