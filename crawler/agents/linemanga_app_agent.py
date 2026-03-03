@@ -386,9 +386,9 @@ class LinemangaAppAgent(CrawlerAgent):
             if root is None:
                 break
 
-            # 썸네일 캡처용 스크린샷 (첫 3스크롤만, 속도 최적화)
+            # 썸네일 캡처용 스크린샷 (모든 스크롤)
             screenshot = None
-            if capture_thumbs and scroll_i <= 2:
+            if capture_thumbs:
                 screenshot = self._capture_screenshot(f'/tmp/lm_app_ss_{scroll_i}.png')
 
             items = self._parse_ranking_items(root)
@@ -606,9 +606,8 @@ class LinemangaAppAgent(CrawlerAgent):
                         continue
 
                     time.sleep(2)
-                    # 종합 전체만 썸네일 캡처 (속도 최적화)
-                    capture = (gender_key == '')
-                    rankings = self._collect_tab_rankings(capture_thumbs=capture)
+                    # 전체(すべて) 탭에서는 항상 썸네일 캡처
+                    rankings = self._collect_tab_rankings(capture_thumbs=True)
                     self.genre_results[sub_key] = rankings
                     self.logger.info(f"  ✅ [{gender_label} 전체]: {len(rankings)}개 작품")
 
@@ -719,15 +718,25 @@ class LinemangaAppAgent(CrawlerAgent):
             save_works_metadata(self.platform_id, works_meta, date=date, sub_category='')
         backup_to_json(date, self.platform_id, data)
 
-        # 썸네일 base64 저장 (종합 전체에서 캡처한 것만)
+        # 모든 전체(すべて) 탭의 썸네일 base64 저장
         thumb_count = 0
         try:
             from crawler.db import save_thumbnail_base64
-            for item in data:
-                thumb = item.get('thumbnail_url', '')
-                if thumb and thumb.startswith('data:image'):
-                    save_thumbnail_base64(self.platform_id, item['title'], thumb)
-                    thumb_count += 1
+            # 종합 전체 + 여성/남성 전체의 썸네일 저장
+            all_thumb_sources = [data]  # 종합 전체
+            for gk in ['女性', '男性']:
+                if gk in self.genre_results and self.genre_results[gk]:
+                    all_thumb_sources.append(self.genre_results[gk])
+
+            saved_titles = set()
+            for source in all_thumb_sources:
+                for item in source:
+                    thumb = item.get('thumbnail_url', '')
+                    title = item.get('title', '')
+                    if thumb and thumb.startswith('data:image') and title not in saved_titles:
+                        save_thumbnail_base64(self.platform_id, title, thumb)
+                        saved_titles.add(title)
+                        thumb_count += 1
         except Exception as e:
             self.logger.warning(f"  ⚠️ 썸네일 저장 실패: {e}")
         if thumb_count:
