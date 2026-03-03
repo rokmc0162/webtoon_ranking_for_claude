@@ -663,7 +663,7 @@ class LinemangaAppAgent(CrawlerAgent):
         # 종합 전체 랭킹 저장 + JSON 백업
         save_rankings(date, self.platform_id, data, sub_category='')
         works_meta = [
-            {'title': item['title'], 'thumbnail_url': item.get('thumbnail_url', ''),
+            {'title': item['title'], 'thumbnail_url': '',
              'url': '', 'genre': item.get('genre', ''), 'rank': item.get('rank')}
             for item in data
         ]

@@ -22,14 +22,14 @@ function Thumbnail({
   ranking: Ranking;
   platform: string;
 }) {
-  const [loadState, setLoadState] = useState<"cdn" | "proxy" | "fallback">(
-    "cdn"
-  );
-
   const cdnUrl = ranking.thumbnail_url;
   const proxyUrl = `/api/thumbnail?platform=${encodeURIComponent(platform)}&title=${encodeURIComponent(ranking.title)}`;
 
-  if (!cdnUrl || loadState === "fallback") {
+  const [loadState, setLoadState] = useState<"cdn" | "proxy" | "fallback">(
+    cdnUrl ? "cdn" : "proxy"
+  );
+
+  if (loadState === "fallback") {
     return (
       <div className="w-[44px] h-[62px] bg-muted rounded flex items-center justify-center text-lg shrink-0">
         📖
@@ -37,7 +37,7 @@ function Thumbnail({
     );
   }
 
-  const src = loadState === "cdn" ? cdnUrl : proxyUrl;
+  const src = loadState === "cdn" ? cdnUrl! : proxyUrl;
 
   return (
     // eslint-disable-next-line @next/next/no-img-element
