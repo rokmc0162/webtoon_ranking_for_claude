@@ -221,30 +221,78 @@ class LinemangaAppAgent(CrawlerAgent):
         except Exception:
             return ''
 
-    def _switch_gender_filter(self, gender_name: str) -> bool:
+    def _switch_gender_on_home(self, gender_name: str) -> bool:
         """
-        랭킹 페이지에서 성별 필터(総合/女性/男性) 전환.
-        스크롤된 상태에서도 동작하도록 먼저 맨 위로 스크롤.
+        홈 화면에서 성별 필터 전환.
+
+        흐름:
+        1. 홈에서 스크롤하며 "今日の人気ランキング" 섹션 찾기
+        2. 옆의 현재 필터(총합/남성/여성) 텍스트 탭
+        3. 바텀시트 드롭다운에서 원하는 성별 선택
         """
-        import time
+        import time, re
 
-        # 맨 위로 스크롤 (아래→위 스와이프 3번)
-        for _ in range(3):
-            self._swipe(540, 600, 540, 1800, 300)
-            time.sleep(0.3)
-        time.sleep(1)
-
+        # 홈 탭 더블탭으로 맨 위로 이동
         root = self._dump_ui()
-        if root is None:
-            return False
+        if root:
+            home_bounds = self._find_element_bounds(root, 'おすすめ')
+            if not home_bounds:
+                home_bounds = self._find_element_bounds(root, 'home')
+            if home_bounds:
+                self._tap_center(home_bounds)
+                time.sleep(0.5)
+                self._tap_center(home_bounds)
+                time.sleep(1)
 
-        bounds = self._find_element_bounds(root, gender_name)
-        if bounds:
-            self._tap_center(bounds)
-            time.sleep(3)
-            return True
+        # 스크롤하며 "今日の人気ランキング" 섹션 찾기
+        for scroll_i in range(8):
+            root = self._dump_ui()
+            if root is None:
+                return False
 
-        self.logger.warning(f"  ⚠️ 성별 필터 '{gender_name}' 을 찾을 수 없음")
+            # 랭킹 섹션의 성별 필터 버튼 찾기
+            # "今日の人気ランキング" 근처에 있는 総合/男性/女性 텍스트
+            ranking_title = self._find_element_bounds(root, '今日の人気ランキング')
+            if ranking_title:
+                # 같은 높이(y좌표 비슷)에 있는 필터 버튼 찾기
+                rt_y = ranking_title[1]  # y1 좌표
+
+                filter_bounds = None
+                for label in ['総合', '男性', '女性']:
+                    b = self._find_element_bounds(root, label)
+                    if b:
+                        by = b[1]  # y1 좌표
+                        # 랭킹 제목과 같은 높이 (±100px)
+                        if abs(by - rt_y) < 100:
+                            filter_bounds = b
+                            break
+
+                if filter_bounds:
+                    # 필터 버튼 탭 → 드롭다운 열기
+                    self._tap_center(filter_bounds)
+                    time.sleep(2)
+
+                    # 드롭다운에서 원하는 성별 선택
+                    root = self._dump_ui()
+                    if root is None:
+                        return False
+
+                    target = self._find_element_bounds(root, gender_name)
+                    if not target:
+                        self.logger.warning(f"  ⚠️ 드롭다운에서 '{gender_name}' 을 찾을 수 없음")
+                        self._run_adb('shell input keyevent KEYCODE_BACK')
+                        time.sleep(1)
+                        return False
+
+                    self._tap_center(target)
+                    time.sleep(3)
+                    self.logger.info(f"  ✅ 성별 필터 '{gender_name}' 선택 완료")
+                    return True
+
+            self._swipe_up()
+            time.sleep(1)
+
+        self.logger.warning("  ⚠️ 홈에서 랭킹 섹션을 찾을 수 없음")
         return False
 
     # ===== 크롤링 로직 =====
@@ -384,16 +432,10 @@ class LinemangaAppAgent(CrawlerAgent):
 
         return rankings
 
-    def _navigate_to_ranking_page(self) -> bool:
-        """
-        홈 → 今日の人気ランキング → 총합 랭킹 페이지로 이동.
-
-        Returns:
-            True if successfully navigated
-        """
+    def _restart_app(self):
+        """앱 종료 후 재실행 + 팝업 닫기"""
         import time
 
-        # 1. 앱 종료 후 재실행
         self.logger.info("📱 라인망가 앱 재시작...")
         self._run_adb(f'am force-stop {PACKAGE}')
         time.sleep(2)
@@ -402,17 +444,15 @@ class LinemangaAppAgent(CrawlerAgent):
         )
         time.sleep(6)
 
-        # 2. 팝업 닫기 (최대 3번 시도)
+        # 팝업 닫기 (최대 3번 시도)
         for popup_i in range(3):
             root = self._dump_ui()
             if root is None:
-                return False
+                return
 
-            # "閉じる" 버튼 찾기
             close_bounds = self._find_element_bounds(root, '閉じる')
             if close_bounds:
                 self.logger.info(f"  팝업 닫기 ({popup_i + 1})...")
-                # "次回から表示しない" 먼저 탭
                 dont_show = self._find_element_bounds(root, '次回から表示しない')
                 if dont_show:
                     self._tap_center(dont_show)
@@ -422,7 +462,13 @@ class LinemangaAppAgent(CrawlerAgent):
             else:
                 break
 
-        # 3. 홈 탭을 두 번 탭하여 맨 위로 스크롤
+    def _enter_ranking_from_home(self) -> bool:
+        """
+        현재 홈 화면에서 "今日の人気ランキング" 을 찾아 탭 → 랭킹 페이지 진입.
+        앱 재시작 없이 동작.
+        """
+        import time
+
         root = self._dump_ui()
         if root:
             home_bounds = self._find_element_bounds(root, 'おすすめ')
@@ -433,9 +479,8 @@ class LinemangaAppAgent(CrawlerAgent):
                 time.sleep(0.5)
                 self._tap_center(home_bounds)
                 time.sleep(1)
-                self.logger.debug("  홈 탭 더블탭 → 맨 위로 이동")
 
-        # 4. 홈 화면에서 "今日の人気ランキング" 찾기 (스크롤)
+        # 스크롤하며 "今日の人気ランキング" 찾아 탭
         for scroll_i in range(8):
             root = self._dump_ui()
             if root is None:
@@ -443,12 +488,10 @@ class LinemangaAppAgent(CrawlerAgent):
 
             ranking_bounds = self._find_element_bounds(root, '今日の人気ランキング')
             if ranking_bounds:
-                # "今日の人気ランキング" 제목 자체를 탭 → 전용 랭킹 페이지로 이동
                 self.logger.info("  '今日の人気ランキング' 발견 → 탭")
                 self._tap_center(ranking_bounds)
                 time.sleep(4)
 
-                # 5. ランキング 페이지 도달 확인
                 root = self._dump_ui()
                 if root is None:
                     return False
@@ -459,7 +502,6 @@ class LinemangaAppAgent(CrawlerAgent):
                     return True
 
                 self.logger.warning("  ⚠️ 랭킹 페이지 확인 실패, 재시도...")
-                # 홈으로 돌아가서 재시도
                 home_bounds = self._find_element_bounds(root, 'おすすめ')
                 if home_bounds:
                     self._tap_center(home_bounds)
@@ -471,6 +513,11 @@ class LinemangaAppAgent(CrawlerAgent):
 
         self.logger.error("❌ 랭킹 페이지를 찾을 수 없음")
         return False
+
+    def _navigate_to_ranking_page(self) -> bool:
+        """앱 재시작 후 랭킹 페이지 진입."""
+        self._restart_app()
+        return self._enter_ranking_from_home()
 
     def _navigate_to_tab(self, tab_name: str) -> bool:
         """
@@ -522,11 +569,11 @@ class LinemangaAppAgent(CrawlerAgent):
                     )
                 self.logger.info(f"  📱 Device: {self.device_id}")
 
-                # 2. 랭킹 페이지로 이동
+                import time
+
+                # 2. 종합(기본) 랭킹 수집
                 if not self._navigate_to_ranking_page():
                     raise Exception("Failed to navigate to ranking page")
-
-                import time
 
                 # 3. 성별 필터 × 장르 탭 크롤링
                 all_rankings = None  # 종합 전체 (메인 데이터)
@@ -536,15 +583,20 @@ class LinemangaAppAgent(CrawlerAgent):
                     gender_name = gender['name']
                     gender_label = gender['label']
 
-                    # 성별 필터 전환
                     if gender_key:
-                        self.logger.info(f"📱 [{gender_label}] 필터 전환...")
-                        if not self._switch_gender_filter(gender_name):
+                        # 여성/남성: 홈으로 돌아간 후 성별 전환 → 랭킹 재진입
+                        self.logger.info(f"📱 [{gender_label}] 홈으로 복귀 → 필터 전환...")
+                        self._run_adb('shell input keyevent KEYCODE_BACK')
+                        time.sleep(2)
+
+                        if not self._switch_gender_on_home(gender_name):
                             self.logger.warning(f"  ⚠️ [{gender_label}] 필터 전환 실패")
                             continue
-                    else:
-                        # 기본 총합 → 그대로 진행
-                        pass
+
+                        # 성별 전환 후 앱 재시작 없이 랭킹 페이지 진입
+                        if not self._enter_ranking_from_home():
+                            self.logger.warning(f"  ⚠️ [{gender_label}] 랭킹 페이지 재진입 실패")
+                            continue
 
                     # すべて 탭 크롤링
                     sub_key = gender_key  # '' or '女性' or '男性'
@@ -589,10 +641,6 @@ class LinemangaAppAgent(CrawlerAgent):
                         except Exception as e:
                             self.logger.warning(f"  ⚠️ [{gender_label}·{label}] 실패: {e}")
                             self.genre_results[compound_key] = []
-
-                    # 성별 필터를 다시 총합으로 복원 (다음 성별 전환 전)
-                    if gender_key:
-                        self._switch_gender_filter('総合')
 
                 # 4. 데이터 검증
                 if all_rankings is None:
