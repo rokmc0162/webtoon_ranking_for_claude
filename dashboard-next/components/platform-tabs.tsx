@@ -50,13 +50,23 @@ export function PlatformTabs({ selected, onSelect, stats }: PlatformTabsProps) {
               />
             )}
             {p.logo ? (
-              <Image
-                src={p.logo}
-                alt={p.name}
-                width={56}
-                height={56}
-                className="relative z-10 rounded-xl object-contain w-11 h-11 sm:w-14 sm:h-14"
-              />
+              <div className="relative z-10">
+                <Image
+                  src={p.logo}
+                  alt={p.name}
+                  width={56}
+                  height={56}
+                  className="rounded-xl object-contain w-11 h-11 sm:w-14 sm:h-14"
+                />
+                {p.badge && (
+                  <span
+                    className="absolute -bottom-1 -right-1 px-1 py-px rounded text-[8px] sm:text-[9px] font-bold text-white leading-none"
+                    style={{ backgroundColor: p.color }}
+                  >
+                    {p.badge}
+                  </span>
+                )}
+              </div>
             ) : (
               <div
                 className="relative z-10 rounded-xl w-11 h-11 sm:w-14 sm:h-14 flex items-center justify-center text-white font-bold text-xl"

@@ -19,6 +19,7 @@ export interface PlatformInfo {
   logo: string; // public/ 경로
   sourceUrl: string;
   genres: Genre[];
+  badge?: string; // 아이콘 오버레이 뱃지 (예: "APP")
 }
 
 export interface Genre {

@@ -23,6 +23,20 @@ logger = logging.getLogger('crawler.agents.linemanga_app')
 # 앱 패키지
 PACKAGE = 'jp.naver.linemanga.android'
 
+# 성별 필터 (랭킹 페이지 상단 오른쪽)
+GENDER_FILTERS = [
+    {'key': '', 'name': '総合', 'label': '종합'},
+    {'key': '女性', 'name': '女性', 'label': '여성'},
+    {'key': '男性', 'name': '男性', 'label': '남성'},
+]
+
+# 3열 그리드 칼럼 좌표 (랭킹 페이지 기준, 1080px 너비)
+COLUMN_BOUNDS = [
+    (30, 365),    # Column 0
+    (370, 705),   # Column 1
+    (710, 1050),  # Column 2
+]
+
 # 수집할 장르 탭 목록 (탭 순서대로)
 GENRE_TABS = [
     {'key': '', 'tab_name': 'すべて', 'label': '전체'},
@@ -154,6 +168,85 @@ class LinemangaAppAgent(CrawlerAgent):
         y = (bounds[1] + bounds[3]) // 2
         self._tap(x, y)
 
+    # ===== 스크린샷 & 썸네일 =====
+
+    def _capture_screenshot(self, local_path: str = '/tmp/lm_app_screen.png'):
+        """스크린샷 캡처 → PIL Image 반환"""
+        try:
+            self._run_adb('screencap -p /sdcard/screen.png')
+            subprocess.run(
+                f'adb pull /sdcard/screen.png {local_path}',
+                shell=True, capture_output=True, timeout=10
+            )
+            from PIL import Image as PILImage
+            return PILImage.open(local_path)
+        except Exception as e:
+            self.logger.warning(f"Screenshot failed: {e}")
+            return None
+
+    def _crop_thumbnail(self, screenshot, title_x: int, title_y: int):
+        """작품 타이틀 위치 기반으로 썸네일 영역 크롭 → base64"""
+        import base64
+        from io import BytesIO
+
+        if screenshot is None:
+            return ''
+
+        # 컬럼 결정 (가장 가까운 컬럼 중심으로 매칭)
+        col_left, col_right = COLUMN_BOUNDS[0]
+        best_dist = 9999
+        for cx1, cx2 in COLUMN_BOUNDS:
+            center = (cx1 + cx2) / 2
+            dist = abs(title_x - center)
+            if dist < best_dist:
+                best_dist = dist
+                col_left, col_right = cx1, cx2
+
+        # 썸네일 영역: 타이틀 위 약 495px ~ 타이틀 위 90px
+        thumb_top = max(0, title_y - 495)
+        thumb_bottom = max(0, title_y - 90)
+
+        # 화면 밖이면 스킵
+        if thumb_top >= thumb_bottom or thumb_top < 100:
+            return ''
+
+        try:
+            crop = screenshot.crop((col_left, thumb_top, col_right, thumb_bottom))
+            # RGB 변환 (RGBA → JPEG 호환) + 150x200 리사이즈
+            crop = crop.convert('RGB').resize((150, 200))
+            buf = BytesIO()
+            crop.save(buf, format='JPEG', quality=60)
+            b64 = base64.b64encode(buf.getvalue()).decode('ascii')
+            return f"data:image/jpeg;base64,{b64}"
+        except Exception:
+            return ''
+
+    def _switch_gender_filter(self, gender_name: str) -> bool:
+        """
+        랭킹 페이지에서 성별 필터(総合/女性/男性) 전환.
+        스크롤된 상태에서도 동작하도록 먼저 맨 위로 스크롤.
+        """
+        import time
+
+        # 맨 위로 스크롤 (아래→위 스와이프 3번)
+        for _ in range(3):
+            self._swipe(540, 600, 540, 1800, 300)
+            time.sleep(0.3)
+        time.sleep(1)
+
+        root = self._dump_ui()
+        if root is None:
+            return False
+
+        bounds = self._find_element_bounds(root, gender_name)
+        if bounds:
+            self._tap_center(bounds)
+            time.sleep(3)
+            return True
+
+        self.logger.warning(f"  ⚠️ 성별 필터 '{gender_name}' 을 찾을 수 없음")
+        return False
+
     # ===== 크롤링 로직 =====
 
     def _parse_ranking_items(self, root: ET.Element) -> List[Dict[str, Any]]:
@@ -225,15 +318,16 @@ class LinemangaAppAgent(CrawlerAgent):
 
         return items
 
-    def _collect_tab_rankings(self, max_scrolls: int = 15, max_items: int = 100) -> List[Dict[str, Any]]:
+    def _collect_tab_rankings(self, max_scrolls: int = 15, max_items: int = 100,
+                              capture_thumbs: bool = True) -> List[Dict[str, Any]]:
         """
-        현재 탭에서 스크롤하며 전체 랭킹 수집.
+        현재 탭에서 스크롤하며 전체 랭킹 수집 + 썸네일 캡처.
 
         Returns:
-            [{rank, title, genre, url}, ...]
+            [{rank, title, genre, url, thumbnail_url}, ...]
         """
         import time
-        all_titles = []
+        all_items = []  # (title, thumb_b64)
         seen_titles = set()
         no_new_count = 0
 
@@ -244,6 +338,11 @@ class LinemangaAppAgent(CrawlerAgent):
             if root is None:
                 break
 
+            # 썸네일 캡처용 스크린샷 (첫 3스크롤만, 속도 최적화)
+            screenshot = None
+            if capture_thumbs and scroll_i <= 2:
+                screenshot = self._capture_screenshot(f'/tmp/lm_app_ss_{scroll_i}.png')
+
             items = self._parse_ranking_items(root)
             new_count = 0
 
@@ -251,10 +350,13 @@ class LinemangaAppAgent(CrawlerAgent):
                 title = item['title']
                 if title not in seen_titles:
                     seen_titles.add(title)
-                    all_titles.append(title)
+                    thumb_b64 = ''
+                    if screenshot:
+                        thumb_b64 = self._crop_thumbnail(screenshot, item['x'], item['y'])
+                    all_items.append((title, thumb_b64))
                     new_count += 1
 
-            self.logger.debug(f"  Scroll {scroll_i}: {new_count} new, total {len(all_titles)}")
+            self.logger.debug(f"  Scroll {scroll_i}: {new_count} new, total {len(all_items)}")
 
             if new_count == 0:
                 no_new_count += 1
@@ -263,7 +365,7 @@ class LinemangaAppAgent(CrawlerAgent):
             else:
                 no_new_count = 0
 
-            if len(all_titles) >= max_items:
+            if len(all_items) >= max_items:
                 break
 
             if scroll_i < max_scrolls:
@@ -271,13 +373,13 @@ class LinemangaAppAgent(CrawlerAgent):
 
         # 순위 할당 (수집 순서 = 순위)
         rankings = []
-        for rank, title in enumerate(all_titles[:max_items], 1):
+        for rank, (title, thumb_b64) in enumerate(all_items[:max_items], 1):
             rankings.append({
                 'rank': rank,
                 'title': title,
                 'genre': '',
                 'url': '',
-                'thumbnail_url': '',
+                'thumbnail_url': thumb_b64,  # base64 data URL
             })
 
         return rankings
@@ -424,39 +526,78 @@ class LinemangaAppAgent(CrawlerAgent):
                 if not self._navigate_to_ranking_page():
                     raise Exception("Failed to navigate to ranking page")
 
-                # 3. すべて 탭 크롤링 (전체 랭킹)
-                self.logger.info("📱 라인망가 앱 [전체] 크롤링 중...")
-                if not self._navigate_to_tab('すべて'):
-                    raise Exception("Failed to navigate to すべて tab")
-
                 import time
-                time.sleep(2)
-                all_rankings = self._collect_tab_rankings()
-                self.logger.info(f"  ✅ [전체]: {len(all_rankings)}개 작품")
-                self.genre_results[''] = all_rankings
 
-                # 4. 장르별 탭 크롤링
-                for genre_info in GENRE_TABS[1:]:  # すべて 스킵
-                    tab_name = genre_info['tab_name']
-                    label = genre_info['label']
-                    genre_key = genre_info['key']
+                # 3. 성별 필터 × 장르 탭 크롤링
+                all_rankings = None  # 종합 전체 (메인 데이터)
 
-                    self.logger.info(f"📱 라인망가 앱 [{label}] 크롤링 중...")
+                for gender in GENDER_FILTERS:
+                    gender_key = gender['key']
+                    gender_name = gender['name']
+                    gender_label = gender['label']
 
-                    try:
-                        if self._navigate_to_tab(tab_name):
-                            time.sleep(2)
-                            rankings = self._collect_tab_rankings()
-                            self.genre_results[genre_key] = rankings
-                            self.logger.info(f"  ✅ [{label}]: {len(rankings)}개 작품")
+                    # 성별 필터 전환
+                    if gender_key:
+                        self.logger.info(f"📱 [{gender_label}] 필터 전환...")
+                        if not self._switch_gender_filter(gender_name):
+                            self.logger.warning(f"  ⚠️ [{gender_label}] 필터 전환 실패")
+                            continue
+                    else:
+                        # 기본 총합 → 그대로 진행
+                        pass
+
+                    # すべて 탭 크롤링
+                    sub_key = gender_key  # '' or '女性' or '男性'
+                    self.logger.info(f"📱 [{gender_label} 전체] 크롤링 중...")
+                    if not self._navigate_to_tab('すべて'):
+                        self.logger.warning(f"  ⚠️ [{gender_label} 전체] すべて 탭 이동 실패")
+                        continue
+
+                    time.sleep(2)
+                    # 종합 전체만 썸네일 캡처 (속도 최적화)
+                    capture = (gender_key == '')
+                    rankings = self._collect_tab_rankings(capture_thumbs=capture)
+                    self.genre_results[sub_key] = rankings
+                    self.logger.info(f"  ✅ [{gender_label} 전체]: {len(rankings)}개 작품")
+
+                    if gender_key == '':
+                        all_rankings = rankings
+
+                    # 장르별 탭 크롤링
+                    for genre_info in GENRE_TABS[1:]:  # すべて 스킵
+                        tab_name = genre_info['tab_name']
+                        label = genre_info['label']
+                        genre_key_part = genre_info['key']
+
+                        # 복합 키: "女性:恋愛" 형태
+                        if gender_key:
+                            compound_key = f"{gender_key}:{genre_key_part}"
                         else:
-                            self.genre_results[genre_key] = []
-                            self.logger.warning(f"  ⚠️ [{label}] 탭 이동 실패")
-                    except Exception as e:
-                        self.logger.warning(f"  ⚠️ [{label}] 실패: {e}")
-                        self.genre_results[genre_key] = []
+                            compound_key = genre_key_part
 
-                # 5. 데이터 검증
+                        self.logger.info(f"📱 [{gender_label}·{label}] 크롤링 중...")
+
+                        try:
+                            if self._navigate_to_tab(tab_name):
+                                time.sleep(2)
+                                tab_rankings = self._collect_tab_rankings(capture_thumbs=False)
+                                self.genre_results[compound_key] = tab_rankings
+                                self.logger.info(f"  ✅ [{gender_label}·{label}]: {len(tab_rankings)}개")
+                            else:
+                                self.genre_results[compound_key] = []
+                                self.logger.warning(f"  ⚠️ [{gender_label}·{label}] 탭 이동 실패")
+                        except Exception as e:
+                            self.logger.warning(f"  ⚠️ [{gender_label}·{label}] 실패: {e}")
+                            self.genre_results[compound_key] = []
+
+                    # 성별 필터를 다시 총합으로 복원 (다음 성별 전환 전)
+                    if gender_key:
+                        self._switch_gender_filter('総合')
+
+                # 4. 데이터 검증
+                if all_rankings is None:
+                    raise Exception("종합 전체 데이터 수집 실패")
+
                 if self.validate(all_rankings):
                     from datetime import datetime
                     date = datetime.now().strftime('%Y-%m-%d')
@@ -516,35 +657,54 @@ class LinemangaAppAgent(CrawlerAgent):
         return True
 
     async def save(self, date: str, data: List[Dict[str, Any]]):
-        """종합 + 장르별 랭킹 저장"""
+        """성별 × 장르별 전체 랭킹 저장 + 썸네일"""
         from crawler.db import save_rankings, backup_to_json, save_works_metadata
 
-        # 종합 랭킹 저장
+        # 종합 전체 랭킹 저장 + JSON 백업
         save_rankings(date, self.platform_id, data, sub_category='')
         works_meta = [
-            {'title': item['title'], 'thumbnail_url': '', 'url': '',
-             'genre': item.get('genre', ''), 'rank': item.get('rank')}
+            {'title': item['title'], 'thumbnail_url': item.get('thumbnail_url', ''),
+             'url': '', 'genre': item.get('genre', ''), 'rank': item.get('rank')}
             for item in data
         ]
         if works_meta:
             save_works_metadata(self.platform_id, works_meta, date=date, sub_category='')
         backup_to_json(date, self.platform_id, data)
 
-        # 장르별 랭킹 저장
-        for genre_info in GENRE_TABS[1:]:
-            genre_key = genre_info['key']
-            label = genre_info['label']
-            rankings = self.genre_results.get(genre_key, [])
-            if not rankings:
-                continue
-            save_rankings(date, self.platform_id, rankings, sub_category=genre_key)
-            genre_meta = [
-                {'title': item['title'], 'thumbnail_url': '', 'url': '',
-                 'genre': item.get('genre', ''), 'rank': item.get('rank')}
+        # 썸네일 base64 저장 (종합 전체에서 캡처한 것만)
+        thumb_count = 0
+        try:
+            from crawler.db import save_thumbnail_base64
+            for item in data:
+                thumb = item.get('thumbnail_url', '')
+                if thumb and thumb.startswith('data:image'):
+                    save_thumbnail_base64(self.platform_id, item['title'], thumb)
+                    thumb_count += 1
+        except Exception as e:
+            self.logger.warning(f"  ⚠️ 썸네일 저장 실패: {e}")
+        if thumb_count:
+            self.logger.info(f"   🖼️ 썸네일 {thumb_count}개 저장")
+
+        # 나머지 모든 장르/성별 조합 저장
+        for sub_key, rankings in self.genre_results.items():
+            if sub_key == '' or not rankings:
+                continue  # 종합 전체는 이미 저장
+
+            # 라벨 생성
+            if ':' in sub_key:
+                parts = sub_key.split(':', 1)
+                label = f"{parts[0]}/{parts[1]}"
+            else:
+                label = sub_key
+
+            save_rankings(date, self.platform_id, rankings, sub_category=sub_key)
+            meta = [
+                {'title': item['title'], 'thumbnail_url': '',
+                 'url': '', 'genre': item.get('genre', ''), 'rank': item.get('rank')}
                 for item in rankings
             ]
-            if genre_meta:
-                save_works_metadata(self.platform_id, genre_meta, date=date, sub_category=genre_key)
+            if meta:
+                save_works_metadata(self.platform_id, meta, date=date, sub_category=sub_key)
             self.logger.info(f"   💾 [{label}]: {len(rankings)}개 저장")
 
 

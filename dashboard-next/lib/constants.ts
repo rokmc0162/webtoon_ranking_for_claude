@@ -48,7 +48,9 @@ export const PLATFORMS: PlatformInfo[] = [
     color: "#00B900",
     logo: "/linemanga.png",
     sourceUrl: "",
+    badge: "APP",
     genres: [
+      // 종합
       { key: "", label: "전체" },
       { key: "恋愛", label: "연애" },
       { key: "ファンタジー・SF", label: "판타지/SF" },
@@ -59,6 +61,28 @@ export const PLATFORMS: PlatformInfo[] = [
       { key: "コメディ・ギャグ", label: "코미디/개그" },
       { key: "スポーツ", label: "스포츠" },
       { key: "歴史・時代", label: "역사/시대" },
+      // 여성
+      { key: "女性", label: "여성" },
+      { key: "女性:恋愛", label: "여성·연애" },
+      { key: "女性:ファンタジー・SF", label: "여성·판타지" },
+      { key: "女性:ミステリー・ホラー", label: "여성·미스터리" },
+      { key: "女性:ヒューマンドラマ", label: "여성·휴먼" },
+      { key: "女性:バトル・アクション", label: "여성·배틀" },
+      { key: "女性:裏社会・アングラ", label: "여성·뒷세계" },
+      { key: "女性:コメディ・ギャグ", label: "여성·코미디" },
+      { key: "女性:スポーツ", label: "여성·스포츠" },
+      { key: "女性:歴史・時代", label: "여성·역사" },
+      // 남성
+      { key: "男性", label: "남성" },
+      { key: "男性:恋愛", label: "남성·연애" },
+      { key: "男性:ファンタジー・SF", label: "남성·판타지" },
+      { key: "男性:ミステリー・ホラー", label: "남성·미스터리" },
+      { key: "男性:ヒューマンドラマ", label: "남성·휴먼" },
+      { key: "男性:バトル・アクション", label: "남성·배틀" },
+      { key: "男性:裏社会・アングラ", label: "남성·뒷세계" },
+      { key: "男性:コメディ・ギャグ", label: "남성·코미디" },
+      { key: "男性:スポーツ", label: "남성·스포츠" },
+      { key: "男性:歴史・時代", label: "남성·역사" },
     ],
   },
   {
