@@ -30,12 +30,21 @@ GENDER_FILTERS = [
     {'key': '男性', 'name': '男性', 'label': '남성'},
 ]
 
-# 3열 그리드 칼럼 좌표 (랭킹 페이지 기준, 1080px 너비)
+# 3열 그리드 칼럼 좌표 (랭킹 페이지 실측, 1080px 너비)
 COLUMN_BOUNDS = [
-    (30, 365),    # Column 0
-    (370, 705),   # Column 1
-    (710, 1050),  # Column 2
+    (38, 360),    # Column 0
+    (379, 701),   # Column 1
+    (720, 1042),  # Column 2
 ]
+
+# 콘텐츠 영역 Y좌표 경계 (스크린샷 기반 실측)
+# 상태바(0-77) + 헤더(108-171) + 탭바(190-314) + 성별필터(314-435) = 435부터 그리드
+CONTENT_TOP_Y = 435     # 그리드 콘텐츠 시작 (탭/헤더 아래)
+CONTENT_BOTTOM_Y = 2107 # 그리드 콘텐츠 끝 (하단 네비바 위)
+
+# 타이틀→커버 이미지 오프셋 (실측 기반)
+THUMB_OFFSET_TOP = 495   # 타이틀 y - 커버이미지 상단 = 495px
+THUMB_OFFSET_BOTTOM = 38 # 타이틀 y - 커버이미지 하단 = 38px
 
 # 수집할 장르 탭 목록 (탭 순서대로)
 GENRE_TABS = [
@@ -185,12 +194,23 @@ class LinemangaAppAgent(CrawlerAgent):
             return None
 
     def _crop_thumbnail(self, screenshot, title_x: int, title_y: int):
-        """작품 타이틀 위치 기반으로 썸네일 영역 크롭 → base64"""
+        """
+        작품 타이틀 위치 기반으로 커버 이미지 영역 크롭 → (base64, crop_height).
+
+        레이아웃 (실측):
+        - 탭바+헤더: y=0~435 (CONTENT_TOP_Y)
+        - 커버 이미지: title_y - 495 ~ title_y - 38
+        - 하단 네비바: y=2107~ (CONTENT_BOTTOM_Y)
+
+        경계에 걸치면 클램핑으로 부분 캡처. crop_height로 품질 판별.
+        전체 커버 높이 = THUMB_OFFSET_TOP - THUMB_OFFSET_BOTTOM = 457px
+        """
         import base64
         from io import BytesIO
+        import numpy as np
 
         if screenshot is None:
-            return ''
+            return '', 0
 
         # 컬럼 결정 (가장 가까운 컬럼 중심으로 매칭)
         col_left, col_right = COLUMN_BOUNDS[0]
@@ -202,24 +222,44 @@ class LinemangaAppAgent(CrawlerAgent):
                 best_dist = dist
                 col_left, col_right = cx1, cx2
 
-        # 썸네일 영역: 타이틀 위 약 495px ~ 타이틀 위 90px
-        thumb_top = max(0, title_y - 495)
-        thumb_bottom = max(0, title_y - 90)
+        # 썸네일 영역 계산 (실측 기반 오프셋)
+        thumb_top = title_y - THUMB_OFFSET_TOP
+        thumb_bottom = title_y - THUMB_OFFSET_BOTTOM
 
-        # 화면 밖이면 스킵
-        if thumb_top >= thumb_bottom or thumb_top < 100:
-            return ''
+        # 경계 클램핑: 헤더/네비바에 걸치면 잘라내서 부분 캡처
+        if thumb_top < CONTENT_TOP_Y:
+            thumb_top = CONTENT_TOP_Y
+        if thumb_bottom > CONTENT_BOTTOM_Y:
+            thumb_bottom = CONTENT_BOTTOM_Y
+
+        # 유효성: 스크린 밖(완전히 안 보이는 경우) 스킵
+        if thumb_bottom <= CONTENT_TOP_Y or thumb_top >= CONTENT_BOTTOM_Y:
+            return '', 0
+
+        crop_height = thumb_bottom - thumb_top
+
+        # 최소 높이 검증 (100px 이상이면 부분 캡처라도 인식 가능)
+        if crop_height < 100:
+            return '', 0
 
         try:
             crop = screenshot.crop((col_left, thumb_top, col_right, thumb_bottom))
-            # RGB 변환 (RGBA → JPEG 호환) + 150x200 리사이즈
-            crop = crop.convert('RGB').resize((150, 200))
+            crop_rgb = crop.convert('RGB')
+
+            # 이미지 품질 검증: 너무 단조로운 이미지 거부 (UI 요소 잘못 캡처 방지)
+            arr = np.array(crop_rgb)
+            std = arr.std()
+            if std < 15:
+                return '', 0
+
+            # 150x200 리사이즈 + JPEG 압축
+            crop_resized = crop_rgb.resize((150, 200))
             buf = BytesIO()
-            crop.save(buf, format='JPEG', quality=60)
+            crop_resized.save(buf, format='JPEG', quality=65)
             b64 = base64.b64encode(buf.getvalue()).decode('ascii')
-            return f"data:image/jpeg;base64,{b64}"
+            return f"data:image/jpeg;base64,{b64}", crop_height
         except Exception:
-            return ''
+            return '', 0
 
     def _switch_gender_on_home(self, gender_name: str) -> bool:
         """
@@ -327,8 +367,8 @@ class LinemangaAppAgent(CrawlerAgent):
             except:
                 continue
 
-            # 콘텐츠 영역만 (탭/네비 바 제외)
-            if y1 < 400 or y1 > 2100:
+            # 콘텐츠 영역만 (탭/헤더/네비 바 제외)
+            if y1 < CONTENT_TOP_Y or y1 > CONTENT_BOTTOM_Y:
                 continue
 
             # 제외: 시스템 텍스트, 랭킹 메타정보
@@ -341,17 +381,25 @@ class LinemangaAppAgent(CrawlerAgent):
             if '話無料' in text or '冊無料' in text or 'CMみて' in text or '¥0パス' in text:
                 continue
 
-            # 제외: 순위 변동 숫자 (1~3자리 숫자)
+            # 제외: 순위 변동/조회수 숫자 (콤마 포함 숫자, 순수 숫자)
+            text_stripped = text.replace(',', '').replace('.', '')
             try:
-                num = int(text)
-                if 1 <= num <= 999:
-                    continue
+                num = int(text_stripped)
+                # 어떤 크기의 순수 숫자도 작품 제목이 아님
+                continue
             except ValueError:
                 pass
 
+            # 제외: 에피소드 표시 "56話. (56)", "100話. (100)" 등
+            if '話.' in text or '話 ' in text:
+                continue
+
+            # 제외: 너무 짧은 텍스트 (2글자 이하)
+            if len(text.strip()) <= 2:
+                continue
+
             # 제외: 장르 라벨
             if text in GENRE_LABELS:
-                # 장르 정보는 아이템에 연결할 수 있으나, 일단 제목만 수집
                 continue
 
             # 나머지 = 작품 제목
@@ -377,7 +425,11 @@ class LinemangaAppAgent(CrawlerAgent):
         import time
         all_items = []  # (title, thumb_b64)
         seen_titles = set()
+        title_to_idx = {}  # title → index in all_items (빠른 룩업)
         no_new_count = 0
+
+        # 전체 크롭 높이 기준 (이보다 낮으면 부분 크롭 → 더 나은 걸로 교체 시도)
+        FULL_CROP_THRESHOLD = 400  # 전체 높이 457px의 ~87%
 
         for scroll_i in range(max_scrolls + 1):
             time.sleep(1.5 if scroll_i == 0 else 1)
@@ -397,12 +449,24 @@ class LinemangaAppAgent(CrawlerAgent):
             for item in items:
                 title = item['title']
                 if title not in seen_titles:
+                    # 신규 아이템
                     seen_titles.add(title)
                     thumb_b64 = ''
+                    thumb_h = 0
                     if screenshot:
-                        thumb_b64 = self._crop_thumbnail(screenshot, item['x'], item['y'])
-                    all_items.append((title, thumb_b64))
+                        thumb_b64, thumb_h = self._crop_thumbnail(screenshot, item['x'], item['y'])
+                    idx = len(all_items)
+                    all_items.append((title, thumb_b64, thumb_h))
+                    title_to_idx[title] = idx
                     new_count += 1
+                elif screenshot and title in title_to_idx:
+                    # 기존 아이템: 썸네일이 없거나 부분 크롭이면 → 재시도
+                    idx = title_to_idx[title]
+                    cur_h = all_items[idx][2]
+                    if cur_h < FULL_CROP_THRESHOLD:
+                        new_thumb, new_h = self._crop_thumbnail(screenshot, item['x'], item['y'])
+                        if new_h > cur_h:
+                            all_items[idx] = (title, new_thumb, new_h)
 
             self.logger.debug(f"  Scroll {scroll_i}: {new_count} new, total {len(all_items)}")
 
@@ -421,7 +485,7 @@ class LinemangaAppAgent(CrawlerAgent):
 
         # 순위 할당 (수집 순서 = 순위)
         rankings = []
-        for rank, (title, thumb_b64) in enumerate(all_items[:max_items], 1):
+        for rank, (title, thumb_b64, _) in enumerate(all_items[:max_items], 1):
             rankings.append({
                 'rank': rank,
                 'title': title,
