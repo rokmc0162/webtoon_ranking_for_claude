@@ -375,6 +375,122 @@ class LinemangaAppAgent(CrawlerAgent):
         except Exception:
             return ''
 
+    def _fetch_cdn_thumbnails(self, titles: List[str]) -> Dict[str, str]:
+        """
+        웹 CDN에서 깨끗한 원본 썸네일을 일괄 수집.
+
+        1순위: DB에서 linemanga(웹) thumbnail_url 조회 → CDN 다운로드
+        2순위: manga.line.me 검색으로 CDN URL 획득 → 다운로드
+
+        Returns: {title: "data:image/jpeg;base64,...", ...}
+        """
+        import base64 as b64_mod
+        import urllib.request
+        import urllib.parse
+        import re
+        from io import BytesIO
+        from PIL import Image as PILImage
+
+        result = {}
+        if not titles:
+            return result
+
+        # --- 1순위: DB에서 linemanga 웹 썸네일 URL 일괄 조회 ---
+        remaining = list(titles)
+        cdn_urls = {}  # title → cdn_url
+
+        try:
+            from crawler.db import get_db_connection
+            conn = get_db_connection()
+            cur = conn.cursor()
+            cur.execute("""
+                SELECT title, thumbnail_url FROM works
+                WHERE platform = 'linemanga'
+                AND title IN %s
+                AND thumbnail_url IS NOT NULL AND thumbnail_url != ''
+            """, (tuple(remaining),))
+            for row in cur.fetchall():
+                cdn_urls[row[0]] = row[1]
+            cur.close()
+            conn.close()
+            self.logger.info(f"  🌐 DB에서 웹 썸네일 {len(cdn_urls)}개 매칭")
+        except Exception as e:
+            self.logger.warning(f"  ⚠️ DB 웹 썸네일 조회 실패: {e}")
+
+        remaining = [t for t in remaining if t not in cdn_urls]
+
+        # --- 2순위: 웹 검색으로 CDN URL 획득 ---
+        search_found = 0
+        title_suffixes = ['【単行本版】', '【単話版】', '【単話】', '（コミック）', '@COMIC']
+
+        for title in remaining:
+            # 정확 매칭 시도 → 실패 시 접미사 제거 후 포함 매칭
+            search_words = [title]
+            clean_title = title
+            for sfx in title_suffixes:
+                clean_title = clean_title.replace(sfx, '').strip()
+            if clean_title != title:
+                search_words.append(clean_title)
+
+            found = False
+            for search_word in search_words:
+                if found:
+                    break
+                try:
+                    encoded = urllib.parse.quote(search_word)
+                    url = f"https://manga.line.me/search_product/list?word={encoded}"
+                    req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+                    resp = urllib.request.urlopen(req, timeout=5)
+                    html = resp.read().decode('utf-8')
+
+                    cards = re.findall(
+                        r'<a[^>]*href="/product/periodic\?id=[^"]*"[^>]*>(.*?)</a>',
+                        html, re.DOTALL
+                    )
+                    for card_html in cards:
+                        card_texts = re.findall(r'>([^<]+)<', card_html)
+                        card_texts = [t.strip() for t in card_texts
+                                      if t.strip() and not t.strip().startswith('{{')]
+                        cdn_imgs = re.findall(
+                            r'<img[^>]*src="(https://cdn-manga[^"]+)"', card_html
+                        )
+                        if not cdn_imgs:
+                            continue
+                        # 정확 매칭 또는 포함 매칭
+                        for ct in card_texts:
+                            if title == ct or clean_title == ct \
+                               or clean_title in ct or ct in clean_title:
+                                cdn_urls[title] = cdn_imgs[0]
+                                search_found += 1
+                                found = True
+                                break
+                        if found:
+                            break
+                except Exception:
+                    pass
+
+        if search_found:
+            self.logger.info(f"  🔍 웹 검색으로 {search_found}개 추가 매칭")
+
+        # --- CDN URL → base64 다운로드 & 변환 ---
+        for title, cdn_url in cdn_urls.items():
+            try:
+                req = urllib.request.Request(cdn_url, headers={'User-Agent': 'Mozilla/5.0'})
+                resp = urllib.request.urlopen(req, timeout=5)
+                img_data = resp.read()
+
+                img = PILImage.open(BytesIO(img_data)).convert('RGB')
+                img_resized = img.resize((150, 200))
+                buf = BytesIO()
+                img_resized.save(buf, format='JPEG', quality=70)
+                b64 = b64_mod.b64encode(buf.getvalue()).decode('ascii')
+                result[title] = f"data:image/jpeg;base64,{b64}"
+            except Exception:
+                pass
+
+        self.logger.info(f"  🖼️ CDN 썸네일 {len(result)}/{len(titles)}개 수집 완료")
+        return result
+
     def _switch_gender_on_home(self, gender_name: str) -> bool:
         """
         홈 화면에서 성별 필터 전환.
@@ -451,26 +567,24 @@ class LinemangaAppAgent(CrawlerAgent):
 
     # ===== 크롤링 로직 =====
 
-    def _collect_tab_rankings(self, max_scrolls: int = 25, max_items: int = 100,
-                              capture_thumbs: bool = True) -> List[Dict[str, Any]]:
+    def _collect_tab_rankings(self, max_scrolls: int = 25, max_items: int = 100) -> List[Dict[str, Any]]:
         """
-        현재 탭에서 스크롤하며 전체 랭킹 수집 + XML bounds 기반 썸네일 캡처.
+        현재 탭에서 스크롤하며 전체 랭킹 수집 (제목만 파싱).
+        썸네일은 save()에서 CDN 일괄 수집.
 
         Returns:
             [{rank, title, genre, url, thumbnail_url}, ...]
         """
         import time
-        all_items = []  # (title, thumb_b64)
+        all_titles = []
         seen_titles = set()
-        title_to_idx = {}  # title → index in all_items (빠른 룩업)
         no_new_count = 0
 
         for scroll_i in range(max_scrolls + 1):
-            # 첫 화면은 1.5초, 이후 1초 대기. 끝 부분에서 로딩 대기용 추가 시간
             if scroll_i == 0:
                 time.sleep(1.5)
             elif no_new_count > 0:
-                time.sleep(2.5)  # 끝 부분: 추가 로딩 대기
+                time.sleep(2.5)
             else:
                 time.sleep(1)
 
@@ -478,36 +592,17 @@ class LinemangaAppAgent(CrawlerAgent):
             if root is None:
                 break
 
-            # 썸네일 캡처용 스크린샷
-            screenshot = None
-            if capture_thumbs:
-                screenshot = self._capture_screenshot(f'/tmp/lm_app_ss_{scroll_i}.png')
-
-            # 구조 기반 파싱 (ranking level 뱃지 → 컨테이너 → 타이틀 + 썸네일 bounds)
             items = self._parse_items_with_bounds(root)
             new_count = 0
 
             for item in items:
                 title = item['title']
                 if title not in seen_titles:
-                    # 신규 아이템
                     seen_titles.add(title)
-                    thumb_b64 = ''
-                    if screenshot and item.get('thumb_bounds'):
-                        thumb_b64 = self._crop_from_xml_bounds(screenshot, item['thumb_bounds'])
-                    idx = len(all_items)
-                    all_items.append((title, thumb_b64))
-                    title_to_idx[title] = idx
+                    all_titles.append(title)
                     new_count += 1
-                elif screenshot and title in title_to_idx:
-                    # 기존 아이템: 썸네일 없으면 재시도
-                    idx = title_to_idx[title]
-                    if not all_items[idx][1] and item.get('thumb_bounds'):
-                        new_thumb = self._crop_from_xml_bounds(screenshot, item['thumb_bounds'])
-                        if new_thumb:
-                            all_items[idx] = (title, new_thumb)
 
-            self.logger.debug(f"  Scroll {scroll_i}: {new_count} new, total {len(all_items)}")
+            self.logger.debug(f"  Scroll {scroll_i}: {new_count} new, total {len(all_titles)}")
 
             if new_count == 0:
                 no_new_count += 1
@@ -516,23 +611,22 @@ class LinemangaAppAgent(CrawlerAgent):
             else:
                 no_new_count = 0
 
-            if len(all_items) >= max_items:
+            if len(all_titles) >= max_items:
                 break
 
             if scroll_i < max_scrolls:
-                # 끝 부분에서는 짧은 스크롤 (리스트 하단 바운스 방지)
-                use_short = no_new_count > 0 or len(all_items) >= max_items - 15
+                use_short = no_new_count > 0 or len(all_titles) >= max_items - 15
                 self._swipe_up(short=use_short)
 
         # 순위 할당 (수집 순서 = 순위)
         rankings = []
-        for rank, (title, thumb_b64) in enumerate(all_items[:max_items], 1):
+        for rank, title in enumerate(all_titles[:max_items], 1):
             rankings.append({
                 'rank': rank,
                 'title': title,
                 'genre': '',
                 'url': '',
-                'thumbnail_url': thumb_b64,  # base64 data URL
+                'thumbnail_url': '',
             })
 
         return rankings
@@ -766,7 +860,7 @@ class LinemangaAppAgent(CrawlerAgent):
 
                     time.sleep(2)
                     # 전체(すべて) 탭에서는 항상 썸네일 캡처
-                    rankings = self._collect_tab_rankings(capture_thumbs=True)
+                    rankings = self._collect_tab_rankings()
                     self.genre_results[sub_key] = rankings
                     self.logger.info(f"  ✅ [{gender_label} 전체]: {len(rankings)}개 작품")
 
@@ -790,7 +884,7 @@ class LinemangaAppAgent(CrawlerAgent):
                         try:
                             if self._navigate_to_tab(tab_name):
                                 time.sleep(2)
-                                tab_rankings = self._collect_tab_rankings(capture_thumbs=True)
+                                tab_rankings = self._collect_tab_rankings()
                                 self.genre_results[compound_key] = tab_rankings
                                 self.logger.info(f"  ✅ [{gender_label}·{label}]: {len(tab_rankings)}개")
                             else:
@@ -863,7 +957,7 @@ class LinemangaAppAgent(CrawlerAgent):
         return True
 
     async def save(self, date: str, data: List[Dict[str, Any]]):
-        """성별 × 장르별 전체 랭킹 저장 + 썸네일"""
+        """성별 × 장르별 전체 랭킹 저장 + CDN 썸네일 일괄 수집"""
         from crawler.db import save_rankings, backup_to_json, save_works_metadata
 
         # 종합 전체 랭킹 저장 + JSON 백업
@@ -877,36 +971,10 @@ class LinemangaAppAgent(CrawlerAgent):
             save_works_metadata(self.platform_id, works_meta, date=date, sub_category='')
         backup_to_json(date, self.platform_id, data)
 
-        # 모든 탭(전체+장르)의 썸네일 base64 저장
-        thumb_count = 0
-        try:
-            from crawler.db import save_thumbnail_base64
-            # 종합 전체 + 모든 장르/성별 탭의 썸네일 저장
-            all_thumb_sources = [data]  # 종합 전체
-            for gk, rankings in self.genre_results.items():
-                if gk != '' and rankings:  # '' = 종합 전체 (이미 data에 포함)
-                    all_thumb_sources.append(rankings)
-
-            saved_titles = set()
-            for source in all_thumb_sources:
-                for item in source:
-                    thumb = item.get('thumbnail_url', '')
-                    title = item.get('title', '')
-                    if thumb and thumb.startswith('data:image') and title not in saved_titles:
-                        save_thumbnail_base64(self.platform_id, title, thumb)
-                        saved_titles.add(title)
-                        thumb_count += 1
-        except Exception as e:
-            self.logger.warning(f"  ⚠️ 썸네일 저장 실패: {e}")
-        if thumb_count:
-            self.logger.info(f"   🖼️ 썸네일 {thumb_count}개 저장")
-
         # 나머지 모든 장르/성별 조합 저장
         for sub_key, rankings in self.genre_results.items():
             if sub_key == '' or not rankings:
-                continue  # 종합 전체는 이미 저장
-
-            # 라벨 생성
+                continue
             if ':' in sub_key:
                 parts = sub_key.split(':', 1)
                 label = f"{parts[0]}/{parts[1]}"
@@ -922,6 +990,35 @@ class LinemangaAppAgent(CrawlerAgent):
             if meta:
                 save_works_metadata(self.platform_id, meta, date=date, sub_category=sub_key)
             self.logger.info(f"   💾 [{label}]: {len(rankings)}개 저장")
+
+        # === CDN 썸네일 일괄 수집 & 저장 ===
+        thumb_count = 0
+        try:
+            from crawler.db import save_thumbnail_base64
+
+            # 모든 탭에서 고유 제목 취합
+            all_titles = set()
+            for item in data:
+                if item.get('title'):
+                    all_titles.add(item['title'])
+            for gk, rankings in self.genre_results.items():
+                if rankings:
+                    for item in rankings:
+                        if item.get('title'):
+                            all_titles.add(item['title'])
+
+            if all_titles:
+                self.logger.info(f"  🌐 CDN 썸네일 수집 시작 ({len(all_titles)}개 작품)...")
+                cdn_thumbs = self._fetch_cdn_thumbnails(list(all_titles))
+
+                for title, b64_data in cdn_thumbs.items():
+                    if b64_data:
+                        save_thumbnail_base64(self.platform_id, title, b64_data)
+                        thumb_count += 1
+        except Exception as e:
+            self.logger.warning(f"  ⚠️ CDN 썸네일 수집/저장 실패: {e}")
+        if thumb_count:
+            self.logger.info(f"   🖼️ CDN 썸네일 {thumb_count}개 저장")
 
 
 if __name__ == "__main__":
