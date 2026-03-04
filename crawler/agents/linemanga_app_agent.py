@@ -419,58 +419,65 @@ class LinemangaAppAgent(CrawlerAgent):
 
         remaining = [t for t in remaining if t not in cdn_urls]
 
-        # --- 2순위: 웹 검색으로 CDN URL 획득 ---
+        # --- 2순위: JSON API 검색으로 CDN URL 획득 ---
+        import json as json_mod
+        import unicodedata
+
         search_found = 0
-        title_suffixes = ['【単行本版】', '【単話版】', '【単話】', '（コミック）', '@COMIC']
+        title_suffixes = [
+            '【電子単行本版】', '【電子単行本】', '【単行本版】', '【単話版】',
+            '【単話】', '【コミックス版】', '【連載版】', '【タテヨミ】',
+            '【分冊版】', '【御無礼合本版】',
+            '（コミック）', '（連載版）', '（分冊版）', '@COMIC',
+        ]
+
+        def _clean(t):
+            c = t
+            for sfx in title_suffixes:
+                c = c.replace(sfx, '')
+            c = re.sub(r'[［\[](.*?)[］\]]', '', c)
+            c = re.sub(r'[（\(](話売り|分冊版)[）\)]', '', c)
+            c = re.sub(r'\s*(分冊版|超合本版|愛蔵版|新装版)$', '', c)
+            c = re.sub(r'\s*コミック版.*$', '', c)
+            return c.replace('\u3000', ' ').strip().strip('「」')
+
+        def _norm(s):
+            return unicodedata.normalize('NFKC', s).lower().replace(' ', '').replace('\u3000', '')
 
         for title in remaining:
-            # 정확 매칭 시도 → 실패 시 접미사 제거 후 포함 매칭
-            search_words = [title]
-            clean_title = title
-            for sfx in title_suffixes:
-                clean_title = clean_title.replace(sfx, '').strip()
-            if clean_title != title:
-                search_words.append(clean_title)
+            clean = _clean(title)
+            short = clean.split('～')[0].split('~')[0].strip() if ('～' in clean or '~' in clean) else clean
+            search_words = list(dict.fromkeys([clean, short, title]))  # 중복 제거, 순서 유지
 
             found = False
-            for search_word in search_words:
-                if found:
+            for word in search_words:
+                if found or not word or len(word) < 2:
                     break
                 try:
-                    encoded = urllib.parse.quote(search_word)
-                    url = f"https://manga.line.me/search_product/list?word={encoded}"
-                    req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+                    encoded = urllib.parse.quote(word)
+                    api_url = f"https://manga.line.me/api/search_product/list?word={encoded}"
+                    req = urllib.request.Request(api_url, headers={'User-Agent': 'Mozilla/5.0'})
                     resp = urllib.request.urlopen(req, timeout=5)
-                    html = resp.read().decode('utf-8')
+                    data = json_mod.load(resp)
 
-                    cards = re.findall(
-                        r'<a[^>]*href="/product/periodic\?id=[^"]*"[^>]*>(.*?)</a>',
-                        html, re.DOTALL
-                    )
-                    for card_html in cards:
-                        card_texts = re.findall(r'>([^<]+)<', card_html)
-                        card_texts = [t.strip() for t in card_texts
-                                      if t.strip() and not t.strip().startswith('{{')]
-                        cdn_imgs = re.findall(
-                            r'<img[^>]*src="(https://cdn-manga[^"]+)"', card_html
-                        )
-                        if not cdn_imgs:
-                            continue
-                        # 정확 매칭 또는 포함 매칭
-                        for ct in card_texts:
-                            if title == ct or clean_title == ct \
-                               or clean_title in ct or ct in clean_title:
-                                cdn_urls[title] = cdn_imgs[0]
+                    rows = data.get('result', {}).get('rows', [])
+                    nc = _norm(clean)
+                    for item in rows:
+                        iname = item.get('name', '')
+                        ni = _norm(iname)
+                        if (nc == ni or nc in ni or ni in nc
+                            or (len(nc) >= 5 and nc[:8] == ni[:8])):
+                            cdn = item.get('thumbnail', '')
+                            if cdn:
+                                cdn_urls[title] = cdn
                                 search_found += 1
                                 found = True
                                 break
-                        if found:
-                            break
                 except Exception:
                     pass
 
         if search_found:
-            self.logger.info(f"  🔍 웹 검색으로 {search_found}개 추가 매칭")
+            self.logger.info(f"  🔍 API 검색으로 {search_found}개 추가 매칭")
 
         # --- CDN URL → base64 다운로드 & 변환 ---
         for title, cdn_url in cdn_urls.items():
@@ -994,7 +1001,7 @@ class LinemangaAppAgent(CrawlerAgent):
         # === CDN 썸네일 일괄 수집 & 저장 ===
         thumb_count = 0
         try:
-            from crawler.db import save_thumbnail_base64
+            from crawler.db import save_thumbnail_base64, get_db_connection
 
             # 모든 탭에서 고유 제목 취합
             all_titles = set()
@@ -1006,6 +1013,22 @@ class LinemangaAppAgent(CrawlerAgent):
                     for item in rankings:
                         if item.get('title'):
                             all_titles.add(item['title'])
+
+            # 이미 썸네일이 있는 작품 제외 (불필요한 재수집 방지)
+            if all_titles:
+                conn = get_db_connection()
+                cur = conn.cursor()
+                cur.execute("""
+                    SELECT title FROM works
+                    WHERE platform = %s AND title IN %s
+                    AND thumbnail_base64 IS NOT NULL AND thumbnail_base64 != ''
+                """, (self.platform_id, tuple(all_titles)))
+                existing = {r[0] for r in cur.fetchall()}
+                cur.close()
+                conn.close()
+                all_titles -= existing
+                if existing:
+                    self.logger.info(f"  ⏭️ 기존 썸네일 {len(existing)}개 스킵")
 
             if all_titles:
                 self.logger.info(f"  🌐 CDN 썸네일 수집 시작 ({len(all_titles)}개 작품)...")
