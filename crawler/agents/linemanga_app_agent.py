@@ -323,8 +323,10 @@ class LinemangaAppAgent(CrawlerAgent):
         XML bounds로 정확히 크롭 → base64 data URL.
 
         - thumb_bounds: (x1, y1, x2, y2) from XML UIAutomator dump
+        - 상단 60%만 크롭하여 순위 번호 오버레이 제거
+          (라인망가 앱은 썸네일 하단에 큰 순위 번호를 렌더링)
         - 화면 내 가시 영역만 클램핑 (CONTENT_TOP_Y ~ CONTENT_BOTTOM_Y)
-        - 가시 비율 60% 미만이면 스킵 (부분 크롭 방지)
+        - 가시 비율 35% 미만이면 스킵 (부분 크롭 방지)
         - numpy std < 15 이면 스킵 (단색/UI 요소)
         - 150×200 JPEG 리사이즈
         """
@@ -338,6 +340,9 @@ class LinemangaAppAgent(CrawlerAgent):
         x1, y1, x2, y2 = thumb_bounds
         full_height = y2 - y1
 
+        # 상단 60%만 사용 — 하단 40%에 렌더링되는 순위 번호 오버레이 제거
+        y2 = y1 + int(full_height * 0.60)
+
         # 화면 내 가시 영역 클램핑
         visible_top = max(y1, CONTENT_TOP_Y)
         visible_bottom = min(y2, CONTENT_BOTTOM_Y)
@@ -346,10 +351,10 @@ class LinemangaAppAgent(CrawlerAgent):
             return ''
 
         visible_height = visible_bottom - visible_top
+        cropped_height = y2 - y1  # 60% 적용 후 높이
 
         # 가시 비율 35% 미만 → 스킵 (너무 많이 잘린 썸네일)
-        # 35%면 약 160px — 아이콘 인식은 충분하며, 다음 스크롤에서 더 나은 것으로 교체됨
-        if full_height > 0 and visible_height / full_height < 0.35:
+        if cropped_height > 0 and visible_height / cropped_height < 0.35:
             return ''
 
         try:
