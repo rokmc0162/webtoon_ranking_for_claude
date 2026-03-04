@@ -496,11 +496,80 @@ class LinemangaAppAgent(CrawlerAgent):
 
         return rankings
 
+    def _dismiss_popups(self, max_attempts: int = 8):
+        """
+        앱 시작 시 표시되는 프로모션 팝업들을 자동 닫기.
+
+        매일 표시되는 팝업 유형:
+        - ミッションイベント (미션 이벤트) - "閉じる" + "次回から表示しない"
+        - 毎日ポイ活 (매일 포인트) - "閉じる"
+        - 100%後日還元 (환원 프로모션) - "閉じる" + "今すぐ確認"
+        - 기타 프로모션 배너
+
+        모두 "閉じる" 버튼으로 닫을 수 있음.
+        """
+        import time
+
+        for popup_i in range(max_attempts):
+            root = self._dump_ui()
+            if root is None:
+                return
+
+            # 1순위: "閉じる" (닫기) 버튼
+            close_bounds = self._find_element_bounds(root, '閉じる')
+            if close_bounds:
+                self.logger.info(f"  🔲 팝업 닫기 ({popup_i + 1})...")
+                # "次回から表示しない" (다음부터 표시하지 않기) 체크박스가 있으면 탭
+                dont_show = self._find_element_bounds(root, '次回から表示しない')
+                if dont_show:
+                    self._tap_center(dont_show)
+                    time.sleep(0.5)
+                self._tap_center(close_bounds)
+                time.sleep(2.5)
+                continue
+
+            # 2순위: "とじる" (닫기 - 히라가나 표기)
+            close_bounds2 = self._find_element_bounds(root, 'とじる')
+            if close_bounds2:
+                self.logger.info(f"  🔲 팝업 닫기 (とじる) ({popup_i + 1})...")
+                self._tap_center(close_bounds2)
+                time.sleep(2.5)
+                continue
+
+            # 3순위: "×" 또는 "✕" 닫기 버튼
+            for close_text in ['×', '✕', '✖']:
+                close_x = self._find_element_bounds(root, close_text)
+                if close_x:
+                    self.logger.info(f"  🔲 팝업 닫기 ({close_text}) ({popup_i + 1})...")
+                    self._tap_center(close_x)
+                    time.sleep(2.5)
+                    break
+            else:
+                # 팝업 없음 → 루프 종료
+                break
+
+        if popup_i > 0:
+            self.logger.info(f"  ✅ {popup_i}개 팝업 처리 완료")
+
+    def _wake_screen(self):
+        """폰 화면 깨우기 (화면 꺼져있을 때)"""
+        import time
+        # 화면 상태 확인
+        state = self._run_adb('dumpsys power | grep "Display Power"')
+        if 'state=OFF' in state:
+            self.logger.info("  📱 화면 깨우기...")
+            self._run_adb('input keyevent KEYCODE_WAKEUP')
+            time.sleep(1)
+            # 잠금 해제 (스와이프 업)
+            self._swipe(540, 2000, 540, 800, 300)
+            time.sleep(1)
+
     def _restart_app(self):
         """앱 종료 후 재실행 + 팝업 닫기"""
         import time
 
         self.logger.info("📱 라인망가 앱 재시작...")
+        self._wake_screen()
         self._run_adb(f'am force-stop {PACKAGE}')
         time.sleep(2)
         self._run_adb(
@@ -508,23 +577,8 @@ class LinemangaAppAgent(CrawlerAgent):
         )
         time.sleep(6)
 
-        # 팝업 닫기 (최대 3번 시도)
-        for popup_i in range(3):
-            root = self._dump_ui()
-            if root is None:
-                return
-
-            close_bounds = self._find_element_bounds(root, '閉じる')
-            if close_bounds:
-                self.logger.info(f"  팝업 닫기 ({popup_i + 1})...")
-                dont_show = self._find_element_bounds(root, '次回から表示しない')
-                if dont_show:
-                    self._tap_center(dont_show)
-                    time.sleep(0.5)
-                self._tap_center(close_bounds)
-                time.sleep(2)
-            else:
-                break
+        # 팝업 자동 닫기 (매일 3~5개 팝업 표시됨)
+        self._dismiss_popups(max_attempts=8)
 
     def _enter_ranking_from_home(self) -> bool:
         """
