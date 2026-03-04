@@ -30,21 +30,10 @@ GENDER_FILTERS = [
     {'key': '男性', 'name': '男性', 'label': '남성'},
 ]
 
-# 3열 그리드 칼럼 좌표 (랭킹 페이지 실측, 1080px 너비)
-COLUMN_BOUNDS = [
-    (38, 360),    # Column 0
-    (379, 701),   # Column 1
-    (720, 1042),  # Column 2
-]
-
 # 콘텐츠 영역 Y좌표 경계 (스크린샷 기반 실측)
 # 상태바(0-77) + 헤더(108-171) + 탭바(190-314) + 성별필터(314-435) = 435부터 그리드
 CONTENT_TOP_Y = 435     # 그리드 콘텐츠 시작 (탭/헤더 아래)
 CONTENT_BOTTOM_Y = 2107 # 그리드 콘텐츠 끝 (하단 네비바 위)
-
-# 타이틀→커버 이미지 오프셋 (실측 기반)
-THUMB_OFFSET_TOP = 495   # 타이틀 y - 커버이미지 상단 = 495px
-THUMB_OFFSET_BOTTOM = 38 # 타이틀 y - 커버이미지 하단 = 38px
 
 # 수집할 장르 탭 목록 (탭 순서대로)
 GENRE_TABS = [
@@ -63,20 +52,6 @@ GENRE_TABS = [
 # 제외할 탭
 SKIP_TABS = {'キャンペーン', '￥0パス', '新着', 'オリジナル', '雑誌', '小説･ラノベ', 'その他'}
 
-# 순위 데이터가 아닌 텍스트 (필터링용)
-NON_TITLE_TEXTS = {
-    'ランキング', '総合', '女性', '男性', 'コインGET!',
-    'home', 'search', 'serial_top_weekly', 'store', 'bookshelf',
-    'おすすめ', '探す', 'オリジナル', '単行本', '本棚',
-}
-
-# 장르 라벨 목록
-GENRE_LABELS = {
-    '恋愛', 'ファンタジー・SF', 'ファンタジー･SF', 'ミステリー・ホラー', 'ミステリー･ホラー',
-    'バトル・アクション', 'バトル･アクション', 'ヒューマンドラマ', '裏社会・アングラ', '裏社会･アングラ',
-    'コメディ・ギャグ', 'コメディ･ギャグ', 'スポーツ', '歴史・時代', '歴史･時代',
-    'その他', '小説・ラノベ', '小説･ラノベ', '雑誌',
-}
 
 
 class LinemangaAppAgent(CrawlerAgent):
@@ -131,9 +106,12 @@ class LinemangaAppAgent(CrawlerAgent):
         """스와이프"""
         self._run_adb(f'input swipe {x1} {y1} {x2} {y2} {duration}')
 
-    def _swipe_up(self):
-        """화면 위로 스크롤 (랭킹 더 보기)"""
-        self._swipe(540, 1800, 540, 600, 400)
+    def _swipe_up(self, short: bool = False):
+        """화면 위로 스크롤 (랭킹 더 보기). short=True이면 짧은 스크롤 (끝 부분용)"""
+        if short:
+            self._swipe(540, 1400, 540, 800, 400)
+        else:
+            self._swipe(540, 1800, 540, 600, 400)
 
     def _swipe_tabs_left(self):
         """탭 바를 왼쪽으로 스크롤 (더 많은 탭 보기)"""
@@ -193,73 +171,204 @@ class LinemangaAppAgent(CrawlerAgent):
             self.logger.warning(f"Screenshot failed: {e}")
             return None
 
-    def _crop_thumbnail(self, screenshot, title_x: int, title_y: int):
+    @staticmethod
+    def _parse_bounds(bounds_str: str) -> Optional[Tuple[int, int, int, int]]:
+        """'[x1,y1][x2,y2]' 형식의 bounds 문자열 파싱"""
+        try:
+            parts = bounds_str.replace('[', '').replace(']', ',').split(',')
+            return int(parts[0]), int(parts[1]), int(parts[2]), int(parts[3])
+        except (ValueError, IndexError):
+            return None
+
+    def _parse_items_with_bounds(self, root: ET.Element) -> List[Dict[str, Any]]:
         """
-        작품 타이틀 위치 기반으로 커버 이미지 영역 크롭 → (base64, crop_height).
+        XML 구조 기반으로 랭킹 아이템 파싱 (구조적 접근).
 
-        레이아웃 (실측):
-        - 탭바+헤더: y=0~435 (CONTENT_TOP_Y)
-        - 커버 이미지: title_y - 495 ~ title_y - 38
-        - 하단 네비바: y=2107~ (CONTENT_BOTTOM_Y)
+        알고리즘:
+        1. content-desc="ranking level" 뱃지 노드를 모두 찾음
+        2. 뱃지의 부모 → 부모의 부모 = 아이템 컨테이너 (clickable View)
+        3. 컨테이너의 첫 번째 큰 자식 View = 썸네일 bounds
+        4. 컨테이너 하위 TextView 중 작품명 추출
 
-        경계에 걸치면 클램핑으로 부분 캡처. crop_height로 품질 판별.
-        전체 커버 높이 = THUMB_OFFSET_TOP - THUMB_OFFSET_BOTTOM = 457px
+        Returns:
+            [{title, thumb_bounds: (x1,y1,x2,y2), item_bounds: (x1,y1,x2,y2)}, ...]
+        """
+        # parent map 빌드 (ElementTree는 부모 참조가 없으므로)
+        parent_map = {child: parent for parent in root.iter() for child in parent}
+
+        items = []
+        seen_containers = set()  # 중복 방지 (같은 컨테이너에서 여러 뱃지 가능)
+
+        for node in root.iter('node'):
+            desc = node.get('content-desc', '').strip()
+            if desc != 'ranking level':
+                continue
+
+            # 뱃지 → 부모 → 조부모 (아이템 컨테이너)
+            badge_parent = parent_map.get(node)
+            if badge_parent is None:
+                continue
+            container = parent_map.get(badge_parent)
+            if container is None:
+                continue
+
+            # 컨테이너 bounds
+            container_bounds_str = container.get('bounds', '')
+            container_bounds = self._parse_bounds(container_bounds_str)
+            if container_bounds is None:
+                continue
+
+            cx1, cy1, cx2, cy2 = container_bounds
+            container_w = cx2 - cx1
+            container_h = cy2 - cy1
+
+            # 중복 컨테이너 스킵
+            container_key = f"{cx1},{cy1},{cx2},{cy2}"
+            if container_key in seen_containers:
+                continue
+            seen_containers.add(container_key)
+
+            # 너무 작은 컨테이너 스킵 (하단 네비바 아이템 등)
+            # 높이 150 이상이면 부분적으로 보이는 아이템도 제목 추출 시도
+            if container_w < 250 or container_h < 150:
+                continue
+
+            # 화면 밖 아이템 스킵 (약간의 여유 허용)
+            if cy2 < CONTENT_TOP_Y or cy1 > CONTENT_BOTTOM_Y + 200:
+                continue
+
+            # 썸네일 bounds: 컨테이너 직계/간접 자식 중 큰 View 찾기
+            thumb_bounds = None
+            self._find_thumbnail_bounds(container, container_bounds, thumb_bounds_result := [])
+            if thumb_bounds_result:
+                thumb_bounds = thumb_bounds_result[0]
+
+            # 타이틀: 뱃지 y좌표 아래에 있는 첫 번째 의미있는 TextView
+            badge_bounds = self._parse_bounds(node.get('bounds', ''))
+            badge_y = badge_bounds[3] if badge_bounds else cy1 + 400
+
+            title = ''
+            self._find_title_text(container, badge_y, title_result := [])
+            if title_result:
+                title = title_result[0]
+
+            if not title:
+                continue
+
+            items.append({
+                'title': title,
+                'thumb_bounds': thumb_bounds,
+                'item_bounds': container_bounds,
+            })
+
+        # 위→아래, 왼→오른 정렬
+        items.sort(key=lambda it: (it['item_bounds'][1], it['item_bounds'][0]))
+        return items
+
+    def _find_thumbnail_bounds(self, container, container_bounds, result: list):
+        """컨테이너 내에서 썸네일 View bounds 찾기 (재귀 탐색)"""
+        cx1, cy1, cx2, cy2 = container_bounds
+        container_w = cx2 - cx1
+
+        for child in container:
+            child_bounds = self._parse_bounds(child.get('bounds', ''))
+            if child_bounds is None:
+                continue
+
+            bx1, by1, bx2, by2 = child_bounds
+            bw = bx2 - bx1
+            bh = by2 - by1
+
+            # 썸네일: 컨테이너와 같은 너비(±30px), 높이 150~500px (부분 아이템도 허용)
+            if abs(bw - container_w) <= 30 and 150 <= bh <= 500:
+                result.append(child_bounds)
+                return
+
+            # 재귀: 내부 컨테이너 탐색
+            if len(child) > 0:
+                self._find_thumbnail_bounds(child, container_bounds, result)
+                if result:
+                    return
+
+    def _find_title_text(self, container, badge_y: int, result: list):
+        """뱃지 아래에서 작품 제목 TextView 찾기 (재귀 탐색)"""
+        for child in container:
+            # TextView에서 텍스트 추출
+            text = child.get('text', '').strip()
+            if text:
+                child_bounds = self._parse_bounds(child.get('bounds', ''))
+                if child_bounds:
+                    _, ty1, _, _ = child_bounds
+                    # 뱃지 아래에 있는 텍스트 = 제목 (첫 번째만)
+                    if ty1 >= badge_y - 20 and len(text) >= 1:
+                        # 에피소드 정보/무료 정보 제외
+                        if not any(kw in text for kw in ['話無料', '冊無料', 'CMみて', '¥0パス', '集計']):
+                            # 순수 숫자 제외
+                            stripped = text.replace(',', '').replace('.', '').replace(' ', '')
+                            try:
+                                int(stripped)
+                                pass  # 숫자 → 스킵
+                            except ValueError:
+                                result.append(text)
+                                return
+
+            # 재귀
+            if len(child) > 0:
+                self._find_title_text(child, badge_y, result)
+                if result:
+                    return
+
+    def _crop_from_xml_bounds(self, screenshot, thumb_bounds) -> str:
+        """
+        XML bounds로 정확히 크롭 → base64 data URL.
+
+        - thumb_bounds: (x1, y1, x2, y2) from XML UIAutomator dump
+        - 화면 내 가시 영역만 클램핑 (CONTENT_TOP_Y ~ CONTENT_BOTTOM_Y)
+        - 가시 비율 60% 미만이면 스킵 (부분 크롭 방지)
+        - numpy std < 15 이면 스킵 (단색/UI 요소)
+        - 150×200 JPEG 리사이즈
         """
         import base64
         from io import BytesIO
         import numpy as np
 
-        if screenshot is None:
-            return '', 0
+        if screenshot is None or thumb_bounds is None:
+            return ''
 
-        # 컬럼 결정 (가장 가까운 컬럼 중심으로 매칭)
-        col_left, col_right = COLUMN_BOUNDS[0]
-        best_dist = 9999
-        for cx1, cx2 in COLUMN_BOUNDS:
-            center = (cx1 + cx2) / 2
-            dist = abs(title_x - center)
-            if dist < best_dist:
-                best_dist = dist
-                col_left, col_right = cx1, cx2
+        x1, y1, x2, y2 = thumb_bounds
+        full_height = y2 - y1
 
-        # 썸네일 영역 계산 (실측 기반 오프셋)
-        thumb_top = title_y - THUMB_OFFSET_TOP
-        thumb_bottom = title_y - THUMB_OFFSET_BOTTOM
+        # 화면 내 가시 영역 클램핑
+        visible_top = max(y1, CONTENT_TOP_Y)
+        visible_bottom = min(y2, CONTENT_BOTTOM_Y)
 
-        # 경계 클램핑: 헤더/네비바에 걸치면 잘라내서 부분 캡처
-        if thumb_top < CONTENT_TOP_Y:
-            thumb_top = CONTENT_TOP_Y
-        if thumb_bottom > CONTENT_BOTTOM_Y:
-            thumb_bottom = CONTENT_BOTTOM_Y
+        if visible_bottom <= visible_top:
+            return ''
 
-        # 유효성: 스크린 밖(완전히 안 보이는 경우) 스킵
-        if thumb_bottom <= CONTENT_TOP_Y or thumb_top >= CONTENT_BOTTOM_Y:
-            return '', 0
+        visible_height = visible_bottom - visible_top
 
-        crop_height = thumb_bottom - thumb_top
-
-        # 최소 높이 검증 (100px 이상이면 부분 캡처라도 인식 가능)
-        if crop_height < 100:
-            return '', 0
+        # 가시 비율 35% 미만 → 스킵 (너무 많이 잘린 썸네일)
+        # 35%면 약 160px — 아이콘 인식은 충분하며, 다음 스크롤에서 더 나은 것으로 교체됨
+        if full_height > 0 and visible_height / full_height < 0.35:
+            return ''
 
         try:
-            crop = screenshot.crop((col_left, thumb_top, col_right, thumb_bottom))
+            crop = screenshot.crop((x1, visible_top, x2, visible_bottom))
             crop_rgb = crop.convert('RGB')
 
-            # 이미지 품질 검증: 너무 단조로운 이미지 거부 (UI 요소 잘못 캡처 방지)
+            # 이미지 품질 검증: 단색/UI 요소 거부
             arr = np.array(crop_rgb)
-            std = arr.std()
-            if std < 15:
-                return '', 0
+            if arr.std() < 15:
+                return ''
 
             # 150x200 리사이즈 + JPEG 압축
             crop_resized = crop_rgb.resize((150, 200))
             buf = BytesIO()
             crop_resized.save(buf, format='JPEG', quality=65)
             b64 = base64.b64encode(buf.getvalue()).decode('ascii')
-            return f"data:image/jpeg;base64,{b64}", crop_height
+            return f"data:image/jpeg;base64,{b64}"
         except Exception:
-            return '', 0
+            return ''
 
     def _switch_gender_on_home(self, gender_name: str) -> bool:
         """
@@ -337,87 +446,10 @@ class LinemangaAppAgent(CrawlerAgent):
 
     # ===== 크롤링 로직 =====
 
-    def _parse_ranking_items(self, root: ET.Element) -> List[Dict[str, Any]]:
-        """
-        현재 화면에서 랭킹 아이템 파싱.
-
-        UI 구조 (3열 그리드):
-        - ranking level (View) → 순위 아이콘
-        - rank changed (View) + 숫자 (TextView) → 순위 변동
-        - 제목 (TextView) → 작품명
-        - 장르/무료정보 (TextView) → 장르 또는 "14話無料" 등
-
-        Returns:
-            타이틀 목록 [{title, genre, x, y}, ...]
-        """
-        items = []
-
-        for node in root.iter('node'):
-            text = node.get('text', '')
-            desc = node.get('content-desc', '')
-            bounds = node.get('bounds', '')
-
-            if not text or not bounds:
-                continue
-
-            # bounds 파싱
-            try:
-                parts = bounds.replace('[', '').replace(']', ',').split(',')
-                x1, y1, x2, y2 = int(parts[0]), int(parts[1]), int(parts[2]), int(parts[3])
-            except:
-                continue
-
-            # 콘텐츠 영역만 (탭/헤더/네비 바 제외)
-            if y1 < CONTENT_TOP_Y or y1 > CONTENT_BOTTOM_Y:
-                continue
-
-            # 제외: 시스템 텍스트, 랭킹 메타정보
-            if text in NON_TITLE_TEXTS:
-                continue
-            if '集計' in text:
-                continue
-
-            # 제외: 무료 정보, 순위 변동 숫자
-            if '話無料' in text or '冊無料' in text or 'CMみて' in text or '¥0パス' in text:
-                continue
-
-            # 제외: 순위 변동/조회수 숫자 (콤마 포함 숫자, 순수 숫자)
-            text_stripped = text.replace(',', '').replace('.', '')
-            try:
-                num = int(text_stripped)
-                # 어떤 크기의 순수 숫자도 작품 제목이 아님
-                continue
-            except ValueError:
-                pass
-
-            # 제외: 에피소드 표시 "56話. (56)", "100話. (100)" 등
-            if '話.' in text or '話 ' in text:
-                continue
-
-            # 제외: 너무 짧은 텍스트 (2글자 이하)
-            if len(text.strip()) <= 2:
-                continue
-
-            # 제외: 장르 라벨
-            if text in GENRE_LABELS:
-                continue
-
-            # 나머지 = 작품 제목
-            items.append({
-                'title': text.strip(),
-                'x': x1,
-                'y': y1,
-            })
-
-        # x좌표 기반 열, y좌표 기반 행으로 정렬 (왼쪽→오른쪽, 위→아래)
-        items.sort(key=lambda item: (item['y'], item['x']))
-
-        return items
-
-    def _collect_tab_rankings(self, max_scrolls: int = 15, max_items: int = 100,
+    def _collect_tab_rankings(self, max_scrolls: int = 25, max_items: int = 100,
                               capture_thumbs: bool = True) -> List[Dict[str, Any]]:
         """
-        현재 탭에서 스크롤하며 전체 랭킹 수집 + 썸네일 캡처.
+        현재 탭에서 스크롤하며 전체 랭킹 수집 + XML bounds 기반 썸네일 캡처.
 
         Returns:
             [{rank, title, genre, url, thumbnail_url}, ...]
@@ -428,22 +460,26 @@ class LinemangaAppAgent(CrawlerAgent):
         title_to_idx = {}  # title → index in all_items (빠른 룩업)
         no_new_count = 0
 
-        # 전체 크롭 높이 기준 (이보다 낮으면 부분 크롭 → 더 나은 걸로 교체 시도)
-        FULL_CROP_THRESHOLD = 400  # 전체 높이 457px의 ~87%
-
         for scroll_i in range(max_scrolls + 1):
-            time.sleep(1.5 if scroll_i == 0 else 1)
+            # 첫 화면은 1.5초, 이후 1초 대기. 끝 부분에서 로딩 대기용 추가 시간
+            if scroll_i == 0:
+                time.sleep(1.5)
+            elif no_new_count > 0:
+                time.sleep(2.5)  # 끝 부분: 추가 로딩 대기
+            else:
+                time.sleep(1)
 
             root = self._dump_ui(f'/tmp/lm_app_scroll_{scroll_i}.xml')
             if root is None:
                 break
 
-            # 썸네일 캡처용 스크린샷 (모든 스크롤)
+            # 썸네일 캡처용 스크린샷
             screenshot = None
             if capture_thumbs:
                 screenshot = self._capture_screenshot(f'/tmp/lm_app_ss_{scroll_i}.png')
 
-            items = self._parse_ranking_items(root)
+            # 구조 기반 파싱 (ranking level 뱃지 → 컨테이너 → 타이틀 + 썸네일 bounds)
+            items = self._parse_items_with_bounds(root)
             new_count = 0
 
             for item in items:
@@ -452,27 +488,25 @@ class LinemangaAppAgent(CrawlerAgent):
                     # 신규 아이템
                     seen_titles.add(title)
                     thumb_b64 = ''
-                    thumb_h = 0
-                    if screenshot:
-                        thumb_b64, thumb_h = self._crop_thumbnail(screenshot, item['x'], item['y'])
+                    if screenshot and item.get('thumb_bounds'):
+                        thumb_b64 = self._crop_from_xml_bounds(screenshot, item['thumb_bounds'])
                     idx = len(all_items)
-                    all_items.append((title, thumb_b64, thumb_h))
+                    all_items.append((title, thumb_b64))
                     title_to_idx[title] = idx
                     new_count += 1
                 elif screenshot and title in title_to_idx:
-                    # 기존 아이템: 썸네일이 없거나 부분 크롭이면 → 재시도
+                    # 기존 아이템: 썸네일 없으면 재시도
                     idx = title_to_idx[title]
-                    cur_h = all_items[idx][2]
-                    if cur_h < FULL_CROP_THRESHOLD:
-                        new_thumb, new_h = self._crop_thumbnail(screenshot, item['x'], item['y'])
-                        if new_h > cur_h:
-                            all_items[idx] = (title, new_thumb, new_h)
+                    if not all_items[idx][1] and item.get('thumb_bounds'):
+                        new_thumb = self._crop_from_xml_bounds(screenshot, item['thumb_bounds'])
+                        if new_thumb:
+                            all_items[idx] = (title, new_thumb)
 
             self.logger.debug(f"  Scroll {scroll_i}: {new_count} new, total {len(all_items)}")
 
             if new_count == 0:
                 no_new_count += 1
-                if no_new_count >= 2:
+                if no_new_count >= 4:
                     break
             else:
                 no_new_count = 0
@@ -481,11 +515,13 @@ class LinemangaAppAgent(CrawlerAgent):
                 break
 
             if scroll_i < max_scrolls:
-                self._swipe_up()
+                # 끝 부분에서는 짧은 스크롤 (리스트 하단 바운스 방지)
+                use_short = no_new_count > 0 or len(all_items) >= max_items - 15
+                self._swipe_up(short=use_short)
 
         # 순위 할당 (수집 순서 = 순위)
         rankings = []
-        for rank, (title, thumb_b64, _) in enumerate(all_items[:max_items], 1):
+        for rank, (title, thumb_b64) in enumerate(all_items[:max_items], 1):
             rankings.append({
                 'rank': rank,
                 'title': title,
