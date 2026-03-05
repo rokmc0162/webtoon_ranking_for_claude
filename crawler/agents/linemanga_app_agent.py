@@ -557,7 +557,7 @@ class LinemangaAppAgent(CrawlerAgent):
                     target = self._find_element_bounds(root, gender_name)
                     if not target:
                         self.logger.warning(f"  ⚠️ 드롭다운에서 '{gender_name}' 을 찾을 수 없음")
-                        self._run_adb('shell input keyevent KEYCODE_BACK')
+                        self._run_adb('input keyevent KEYCODE_BACK')
                         time.sleep(1)
                         return False
 
@@ -687,8 +687,19 @@ class LinemangaAppAgent(CrawlerAgent):
                     time.sleep(2.5)
                     break
             else:
-                # 팝업 없음 → 루프 종료
-                break
+                # 4순위: 업데이트/동의 다이얼로그 ("後で", "あとで", "OK", "同意する")
+                handled = False
+                for btn_text in ['後で', 'あとで', '同意する', 'OK', 'スキップ', 'SKIP']:
+                    btn = self._find_element_bounds(root, btn_text)
+                    if btn:
+                        self.logger.info(f"  🔲 다이얼로그 처리 ({btn_text}) ({popup_i + 1})...")
+                        self._tap_center(btn)
+                        time.sleep(2.5)
+                        handled = True
+                        break
+                if not handled:
+                    # 팝업 없음 → 루프 종료
+                    break
 
         if popup_i > 0:
             self.logger.info(f"  ✅ {popup_i}개 팝업 처리 완료")
@@ -701,10 +712,18 @@ class LinemangaAppAgent(CrawlerAgent):
         if 'state=OFF' in state:
             self.logger.info("  📱 화면 깨우기...")
             self._run_adb('input keyevent KEYCODE_WAKEUP')
-            time.sleep(1)
+            time.sleep(2)
             # 잠금 해제 (스와이프 업)
             self._swipe(540, 2000, 540, 800, 300)
             time.sleep(1)
+            # 한 번 더 확인 — 여전히 꺼져있으면 전원 버튼
+            state2 = self._run_adb('dumpsys power | grep "Display Power"')
+            if 'state=OFF' in state2:
+                self.logger.info("  📱 전원 버튼으로 재시도...")
+                self._run_adb('input keyevent KEYCODE_POWER')
+                time.sleep(2)
+                self._swipe(540, 2000, 540, 800, 300)
+                time.sleep(1)
 
     def _restart_app(self):
         """앱 종료 후 재실행 + 팝업 닫기"""
@@ -717,10 +736,10 @@ class LinemangaAppAgent(CrawlerAgent):
         self._run_adb(
             f'monkey -p {PACKAGE} -c android.intent.category.LAUNCHER 1'
         )
-        time.sleep(6)
+        time.sleep(10)  # 콜드 스타트/느린 네트워크 대비 10초 대기
 
         # 팝업 자동 닫기 (매일 3~5개 팝업 표시됨)
-        self._dismiss_popups(max_attempts=8)
+        self._dismiss_popups(max_attempts=10)
 
     def _enter_ranking_from_home(self) -> bool:
         """
@@ -729,22 +748,39 @@ class LinemangaAppAgent(CrawlerAgent):
         """
         import time
 
+        # 홈 탭 더블탭으로 맨 위로 이동
         root = self._dump_ui()
-        if root:
-            home_bounds = self._find_element_bounds(root, 'おすすめ')
-            if not home_bounds:
-                home_bounds = self._find_element_bounds(root, 'home')
-            if home_bounds:
-                self._tap_center(home_bounds)
-                time.sleep(0.5)
-                self._tap_center(home_bounds)
-                time.sleep(1)
+        if root is None:
+            self.logger.error("  ❌ UI dump 실패 — 화면 상태 확인 필요")
+            return False
 
-        # 스크롤하며 "今日の人気ランキング" 찾아 탭
-        for scroll_i in range(8):
+        # 홈 화면 확인 (おすすめ 또는 하단 네비바 홈 아이콘)
+        home_bounds = self._find_element_bounds(root, 'おすすめ')
+        if not home_bounds:
+            home_bounds = self._find_element_bounds(root, 'home')
+        if not home_bounds:
+            # 홈 버튼을 못 찾으면 팝업이 남아있을 수 있음
+            self.logger.warning("  ⚠️ 홈 버튼 미발견 → 추가 팝업 확인")
+            self._dismiss_popups(max_attempts=3)
+            time.sleep(1)
+            root = self._dump_ui()
+            if root:
+                home_bounds = self._find_element_bounds(root, 'おすすめ')
+                if not home_bounds:
+                    home_bounds = self._find_element_bounds(root, 'home')
+
+        if home_bounds:
+            self._tap_center(home_bounds)
+            time.sleep(0.5)
+            self._tap_center(home_bounds)
+            time.sleep(1.5)
+
+        # 스크롤하며 "今日の人気ランキング" 찾아 탭 (12회로 증가)
+        for scroll_i in range(12):
             root = self._dump_ui()
             if root is None:
-                return False
+                time.sleep(1)
+                continue
 
             ranking_bounds = self._find_element_bounds(root, '今日の人気ランキング')
             if ranking_bounds:
@@ -769,36 +805,95 @@ class LinemangaAppAgent(CrawlerAgent):
                 continue
 
             self._swipe_up()
-            time.sleep(1)
+            time.sleep(1.5)
 
+        # 실패 시 진단 로깅 — 현재 화면에 보이는 텍스트 목록
+        self._log_visible_texts("홈 스크롤 실패")
         self.logger.error("❌ 랭킹 페이지를 찾을 수 없음")
         return False
+
+    def _log_visible_texts(self, context: str = ""):
+        """현재 화면에 보이는 UI 텍스트 목록을 로그에 출력 (진단용)"""
+        root = self._dump_ui()
+        if root is None:
+            self.logger.warning(f"  📋 [{context}] UI dump 실패")
+            return
+
+        texts = []
+        for node in root.iter('node'):
+            text = node.get('text', '').strip()
+            if text and len(text) < 80:
+                texts.append(text)
+
+        if texts:
+            sample = texts[:15]
+            self.logger.info(f"  📋 [{context}] 화면 텍스트: {sample}")
+        else:
+            self.logger.warning(f"  📋 [{context}] 화면에 텍스트 없음")
 
     def _navigate_to_ranking_page(self) -> bool:
         """앱 재시작 후 랭킹 페이지 진입."""
         self._restart_app()
         return self._enter_ranking_from_home()
 
+    def _find_tab_bounds(self, root: ET.Element, tab_name: str) -> Optional[Tuple[int, int, int, int]]:
+        """탭 이름으로 UI 요소 찾기 (부분 매칭 + 중점 문자 통일)"""
+        # 중점 문자 통일 (・, ･, · 모두 매칭)
+        def normalize_dots(s):
+            return s.replace('・', '･').replace('·', '･')
+
+        normalized_name = normalize_dots(tab_name)
+
+        for node in root.iter('node'):
+            node_text = node.get('text', '').strip()
+            node_desc = node.get('content-desc', '').strip()
+
+            for txt in (node_text, node_desc):
+                if not txt:
+                    continue
+                normalized_txt = normalize_dots(txt)
+                if normalized_txt == normalized_name or normalized_name in normalized_txt:
+                    bounds = node.get('bounds', '')
+                    try:
+                        parts = bounds.replace('[', '').replace(']', ',').split(',')
+                        return int(parts[0]), int(parts[1]), int(parts[2]), int(parts[3])
+                    except:
+                        pass
+        return None
+
+    def _scroll_to_top(self):
+        """랭킹 리스트를 맨 위로 스크롤 (탭바 보이도록)"""
+        import time
+        for _ in range(15):
+            self._swipe(540, 600, 540, 1800, 200)  # 빠른 스와이프 다운
+            time.sleep(0.2)
+        time.sleep(0.5)
+
     def _navigate_to_tab(self, tab_name: str) -> bool:
         """
         탭 이름으로 특정 장르 탭 이동.
-        탭 바를 좌우 스크롤하며 찾음.
+        먼저 페이지 상단으로 스크롤 후, 탭 바를 좌우 스크롤하며 찾음.
         """
         import time
 
-        # 먼저 탭 바를 맨 왼쪽으로 리셋 (오른쪽으로 3번 스크롤)
+        # 랭킹 리스트 수집 후 스크롤이 아래에 있으므로, 먼저 상단으로 복귀
+        self._scroll_to_top()
+
+        # 탭 바를 맨 왼쪽으로 리셋 (오른쪽으로 4번 스크롤)
         for _ in range(4):
             self._swipe_tabs_right()
-            time.sleep(0.5)
+            time.sleep(0.3)
+        time.sleep(0.5)
 
-        # 왼쪽으로 스크롤하며 탭 찾기 (최대 5번)
-        for scroll_i in range(6):
-            time.sleep(0.5)
+        # 왼쪽으로 스크롤하며 탭 찾기 (최대 8번)
+        for scroll_i in range(8):
+            time.sleep(0.8)
             root = self._dump_ui()
             if root is None:
-                return False
+                time.sleep(0.5)
+                continue
 
-            bounds = self._find_element_bounds(root, tab_name)
+            bounds = self._find_tab_bounds(root, tab_name)
             if bounds:
                 self._tap_center(bounds)
                 time.sleep(2)
@@ -846,7 +941,7 @@ class LinemangaAppAgent(CrawlerAgent):
                     if gender_key:
                         # 여성/남성: 홈으로 돌아간 후 성별 전환 → 랭킹 재진입
                         self.logger.info(f"📱 [{gender_label}] 홈으로 복귀 → 필터 전환...")
-                        self._run_adb('shell input keyevent KEYCODE_BACK')
+                        self._run_adb('input keyevent KEYCODE_BACK')
                         time.sleep(2)
 
                         if not self._switch_gender_on_home(gender_name):

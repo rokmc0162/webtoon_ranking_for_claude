@@ -5,6 +5,8 @@
 # 환경 설정
 export PATH="/usr/local/bin:/usr/bin:/bin:/Users/kimyang-il/Library/Python/3.9/bin:$PATH"
 export LANG=ko_KR.UTF-8
+export ANDROID_HOME="/usr/local/Caskroom/android-platform-tools/36.0.2"
+export HOME="/Users/kimyang-il"
 
 # 프로젝트 경로
 PROJECT_DIR="/Users/kimyang-il/CLAUDE/webtoon_ranking_for_claude"
