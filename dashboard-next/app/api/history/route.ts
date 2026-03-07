@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { sql } from "@/lib/supabase";
+import { getPlatformById } from "@/lib/constants";
 
 export async function GET(request: NextRequest) {
   const { searchParams } = request.nextUrl;
@@ -28,45 +29,46 @@ export async function GET(request: NextRequest) {
         AND sub_category IS NOT NULL AND sub_category != ''
       GROUP BY sub_category
       ORDER BY cnt DESC
-      LIMIT 1
     `,
   ]);
 
-  const genre = genreRows.length > 0 ? genreRows[0].sub_category : "";
-
-  // 3. 장르순위 (장르가 있을 때만)
-  let genreRankMap: Record<string, number> = {};
-  if (genre) {
-    const genreRankRows = await sql`
-      SELECT date, rank::int as rank
+  // 3. 전체 장르 순위 벌크 조회
+  const platformInfo = getPlatformById(platform);
+  let genreRankRows: { sub_category: string; date: string; rank: number }[] = [];
+  if (genreRows.length > 0) {
+    genreRankRows = await sql`
+      SELECT sub_category, date, rank::int as rank
       FROM rankings
       WHERE title = ${title} AND platform = ${platform}
-        AND sub_category = ${genre}
-      ORDER BY date DESC
-      LIMIT ${days}
+        AND sub_category IS NOT NULL AND sub_category != ''
+      ORDER BY sub_category, date DESC
     `;
-    for (const r of genreRankRows) {
-      genreRankMap[r.date] = r.rank;
-    }
   }
 
-  // 4. 날짜 합치기 (종합 + 장르 모든 날짜)
-  const allDates = new Set<string>();
-  for (const r of overallRows) allDates.add(r.date);
-  for (const d of Object.keys(genreRankMap)) allDates.add(d);
+  // 장르별 히스토리 분류
+  const genreHistMap = new Map<string, { date: string; rank: number }[]>();
+  for (const r of genreRankRows) {
+    const sc = String(r.sub_category);
+    if (!genreHistMap.has(sc)) genreHistMap.set(sc, []);
+    const arr = genreHistMap.get(sc)!;
+    if (arr.length < days) arr.push({ date: String(r.date), rank: Number(r.rank) });
+  }
 
-  const overallMap: Record<string, number> = {};
-  for (const r of overallRows) overallMap[r.date] = r.rank;
+  const genres = genreRows.map((g) => {
+    const sc = String(g.sub_category);
+    return {
+      sub_category: sc,
+      label: platformInfo?.genres.find((gn) => gn.key === sc)?.label || sc,
+      history: (genreHistMap.get(sc) || []).reverse(),
+    };
+  });
 
-  const history = Array.from(allDates)
-    .sort()
-    .map((date) => ({
-      date,
-      rank: overallMap[date] ?? null,
-      genre_rank: genreRankMap[date] ?? null,
-    }));
+  // 종합 히스토리
+  const overall = overallRows
+    .map((r) => ({ date: String(r.date), rank: Number(r.rank) }))
+    .reverse();
 
-  return NextResponse.json({ overall: history, genre }, {
+  return NextResponse.json({ overall, genres }, {
     headers: {
       "Cache-Control": "public, s-maxage=300, stale-while-revalidate=600",
     },

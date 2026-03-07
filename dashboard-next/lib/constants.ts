@@ -1,5 +1,21 @@
 import type { PlatformInfo } from "./types";
 
+/** 장르 라인 색상 팔레트 (빈도순 인덱스 할당) */
+export const GENRE_COLORS = [
+  "#6366F1", // indigo
+  "#EC4899", // pink
+  "#14B8A6", // teal
+  "#F59E0B", // amber
+  "#8B5CF6", // violet
+  "#10B981", // emerald
+  "#EF4444", // red
+  "#3B82F6", // blue
+  "#F97316", // orange
+  "#06B6D4", // cyan
+  "#84CC16", // lime
+  "#A855F7", // purple
+];
+
 export const PLATFORMS: PlatformInfo[] = [
   {
     id: "piccoma",

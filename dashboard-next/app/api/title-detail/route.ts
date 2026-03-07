@@ -14,9 +14,10 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  // 1단계: 메타데이터 + 랭킹히스토리 + 장르 + 리뷰 통계를 병렬 조회
+  const platformInfo = PLATFORMS.find((p) => p.id === platform);
+
+  // 1단계: 메타데이터 + 랭킹히스토리 + 장르(전체) + 리뷰를 병렬 조회
   const [metaRows, overallRows, genreRows, reviewRows] = await Promise.all([
-    // 작품 메타데이터
     sql`
       SELECT platform, title, title_kr, genre, genre_kr, is_riverse, url,
              thumbnail_url, thumbnail_base64,
@@ -27,7 +28,6 @@ export async function GET(request: NextRequest) {
       WHERE platform = ${platform} AND title = ${title}
       LIMIT 1
     `,
-    // 종합순위 히스토리
     sql`
       SELECT date, rank::int as rank
       FROM rankings
@@ -36,7 +36,6 @@ export async function GET(request: NextRequest) {
       ORDER BY date DESC
       LIMIT 90
     `,
-    // 장르 sub_category 찾기
     sql`
       SELECT sub_category, COUNT(*)::int as cnt
       FROM rankings
@@ -44,9 +43,7 @@ export async function GET(request: NextRequest) {
         AND sub_category IS NOT NULL AND sub_category != ''
       GROUP BY sub_category
       ORDER BY cnt DESC
-      LIMIT 1
     `,
-    // 리뷰 (최대 50건)
     sql`
       SELECT reviewer_name, reviewer_info, body, rating,
              likes_count, is_spoiler, reviewed_at
@@ -86,19 +83,18 @@ export async function GET(request: NextRequest) {
     last_seen_date: w.last_seen_date || null,
   };
 
-  const genre = genreRows.length > 0 ? genreRows[0].sub_category : "";
+  const hasGenres = genreRows.length > 0;
 
-  // 2단계: 장르순위 + 크로스플랫폼을 병렬 조회
+  // 2단계: 장르 히스토리(벌크) + 크로스플랫폼을 병렬 조회
   const titleKr = metadata.title_kr;
   const [genreRankRows, crossPlatformRows] = await Promise.all([
-    genre
+    hasGenres
       ? sql`
-          SELECT date, rank::int as rank
+          SELECT sub_category, date::text as date, rank::int as rank
           FROM rankings
           WHERE title = ${title} AND platform = ${platform}
-            AND sub_category = ${genre}
-          ORDER BY date DESC
-          LIMIT 90
+            AND sub_category IS NOT NULL AND sub_category != ''
+          ORDER BY sub_category, date DESC
         `
       : Promise.resolve([]),
     titleKr
@@ -117,26 +113,28 @@ export async function GET(request: NextRequest) {
         `,
   ]);
 
-  // 장르 히스토리 구성
-  const genreRankMap: Record<string, number> = {};
+  // 장르별 히스토리 분류
+  const genreHistMap = new Map<string, { date: string; rank: number }[]>();
   for (const r of genreRankRows) {
-    genreRankMap[r.date] = r.rank;
+    const sc = String(r.sub_category);
+    if (!genreHistMap.has(sc)) genreHistMap.set(sc, []);
+    const arr = genreHistMap.get(sc)!;
+    if (arr.length < 90) arr.push({ date: String(r.date), rank: Number(r.rank) });
   }
 
-  const allDates = new Set<string>();
-  for (const r of overallRows) allDates.add(r.date);
-  for (const d of Object.keys(genreRankMap)) allDates.add(d);
+  const genres = genreRows.map((g) => {
+    const sc = String(g.sub_category);
+    return {
+      sub_category: sc,
+      label: platformInfo?.genres.find((gn) => gn.key === sc)?.label || sc,
+      history: (genreHistMap.get(sc) || []).reverse(),
+    };
+  });
 
-  const overallMap: Record<string, number> = {};
-  for (const r of overallRows) overallMap[r.date] = r.rank;
-
-  const history = Array.from(allDates)
-    .sort()
-    .map((date) => ({
-      date,
-      rank: overallMap[date] ?? null,
-      genre_rank: genreRankMap[date] ?? null,
-    }));
+  // 종합 히스토리
+  const history = overallRows
+    .map((r) => ({ date: String(r.date), rank: Number(r.rank) }))
+    .reverse();
 
   // 크로스플랫폼 최신 순위 + 랭킹 히스토리: 병렬 실행
   const crossPlatform = await Promise.all(
@@ -206,7 +204,7 @@ export async function GET(request: NextRequest) {
   return NextResponse.json(
     {
       metadata,
-      rankHistory: { overall: history, genre },
+      rankHistory: { overall: history, genres },
       crossPlatform,
       reviewStats: {
         total: reviews.length,

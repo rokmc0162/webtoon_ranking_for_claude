@@ -58,85 +58,103 @@ export async function GET(request: NextRequest) {
     ORDER BY platform
   `;
 
-  // 3. 각 플랫폼별 랭킹 히스토리 + 장르 랭킹 (병렬)
-  const platforms = await Promise.all(
-    worksRows.map(async (w) => {
-      const pInfo = PLATFORMS.find((p) => p.id === w.platform);
+  // 3. 모든 플랫폼의 장르 + 랭킹 히스토리를 벌크 쿼리로 조회
+  const allTitles = worksRows.map((w) => w.title);
+  const allPlatforms = worksRows.map((w) => w.platform);
 
-      // 장르 sub_category 조회
-      const genreRows = await sql`
-        SELECT sub_category, COUNT(*)::int as cnt
-        FROM rankings
-        WHERE title = ${w.title} AND platform = ${w.platform}
-          AND sub_category IS NOT NULL AND sub_category != ''
-        GROUP BY sub_category
-        ORDER BY cnt DESC
-        LIMIT 1
-      `;
-      const genreKey = genreRows.length > 0 ? genreRows[0].sub_category : "";
-      const genreLabel = genreKey
-        ? (pInfo?.genres.find((g) => g.key === genreKey)?.label || genreKey)
-        : "";
+  const [genreBulk, rankBulk] = await Promise.all([
+    sql`
+      SELECT title, platform, sub_category, COUNT(*)::int as cnt
+      FROM rankings
+      WHERE title = ANY(${allTitles}) AND platform = ANY(${allPlatforms})
+        AND sub_category IS NOT NULL AND sub_category != ''
+      GROUP BY title, platform, sub_category
+      ORDER BY title, platform, cnt DESC
+    `,
+    sql`
+      SELECT title, platform, sub_category, date, rank::int as rank
+      FROM rankings
+      WHERE title = ANY(${allTitles}) AND platform = ANY(${allPlatforms})
+      ORDER BY title, platform, date DESC
+    `,
+  ]);
 
-      // 종합 + 장르 랭킹 히스토리 + 최근 순위 (병렬)
-      const [overallRows, genreRankRows, latestRows] = await Promise.all([
-        sql`
-          SELECT date, rank::int as rank
-          FROM rankings
-          WHERE title = ${w.title} AND platform = ${w.platform}
-            AND COALESCE(sub_category, '') = ''
-          ORDER BY date DESC
-          LIMIT 90
-        `,
-        genreKey
-          ? sql`
-              SELECT date, rank::int as rank
-              FROM rankings
-              WHERE title = ${w.title} AND platform = ${w.platform}
-                AND sub_category = ${genreKey}
-              ORDER BY date DESC
-              LIMIT 90
-            `
-          : Promise.resolve([]),
-        sql`
-          SELECT rank::int as rank, date
-          FROM rankings
-          WHERE title = ${w.title} AND platform = ${w.platform}
-            AND COALESCE(sub_category, '') = ''
-          ORDER BY date DESC
-          LIMIT 1
-        `,
-      ]);
+  // 장르 벌크 데이터를 플랫폼별로 정리
+  const genreMap = new Map<string, { sub_category: string; cnt: number }[]>();
+  for (const row of genreBulk) {
+    const key = `${row.platform}:${row.title}`;
+    if (!genreMap.has(key)) genreMap.set(key, []);
+    const pInfo = PLATFORMS.find((p) => p.id === row.platform);
+    const overallKey = pInfo?.genres[0]?.key ?? "";
+    if (row.sub_category !== overallKey) {
+      genreMap.get(key)!.push({ sub_category: row.sub_category, cnt: row.cnt });
+    }
+  }
 
-      return {
-        platform: w.platform,
-        platform_name: pInfo?.name || w.platform,
-        platform_color: pInfo?.color || "#666",
-        title: w.title,
-        url: w.url || "",
-        best_rank: w.best_rank ?? null,
-        latest_rank: latestRows.length > 0 ? latestRows[0].rank : null,
-        latest_date: latestRows.length > 0 ? latestRows[0].date : null,
-        rating: w.rating ? Number(w.rating) : null,
-        review_count: w.review_count ?? null,
-        hearts: w.hearts ?? null,
-        favorites: w.favorites ?? null,
-        first_seen_date: w.first_seen_date || null,
-        last_seen_date: w.last_seen_date || null,
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        rank_history: overallRows.map((r: any) => ({
-          date: r.date as string,
-          rank: r.rank as number,
-        })),
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        genre_rank_history: genreRankRows.map((r: any) => ({
-          date: r.date as string,
-          rank: r.rank as number,
-        })),
-        genre_label: genreLabel,
-      };
-    })
-  );
+  // 랭킹 벌크 데이터를 플랫폼별로 분류
+  type RankEntry = { date: string; rank: number };
+  const rankMap = new Map<string, { overall: RankEntry[]; genres: Map<string, RankEntry[]>; latest: RankEntry | null }>();
+
+  for (const w of worksRows) {
+    const pInfo = PLATFORMS.find((p) => p.id === w.platform);
+    const overallKey = pInfo?.genres[0]?.key ?? "";
+    const mapKey = `${w.platform}:${w.title}`;
+    const genreKeys = (genreMap.get(mapKey) || []).map((g) => g.sub_category);
+
+    const overall: RankEntry[] = [];
+    const genreEntries = new Map<string, RankEntry[]>();
+    for (const gk of genreKeys) genreEntries.set(gk, []);
+    let latest: RankEntry | null = null;
+
+    for (const r of rankBulk) {
+      if (r.title !== w.title || r.platform !== w.platform) continue;
+      const sc = r.sub_category || "";
+      const entry = { date: String(r.date), rank: r.rank };
+
+      if (overallKey === "" ? sc === "" : sc === overallKey) {
+        if (overall.length < 90) overall.push(entry);
+        if (!latest) latest = entry;
+      }
+      if (genreEntries.has(sc) && genreEntries.get(sc)!.length < 90) {
+        genreEntries.get(sc)!.push(entry);
+      }
+    }
+
+    rankMap.set(mapKey, { overall, genres: genreEntries, latest });
+  }
+
+  // 플랫폼 데이터 조립
+  const platforms = worksRows.map((w) => {
+    const pInfo = PLATFORMS.find((p) => p.id === w.platform);
+    const mapKey = `${w.platform}:${w.title}`;
+    const genres = genreMap.get(mapKey) || [];
+    const ranks = rankMap.get(mapKey) || { overall: [], genres: new Map(), latest: null };
+
+    const genreHistories = genres.map((g) => ({
+      sub_category: g.sub_category,
+      label: pInfo?.genres.find((gn) => gn.key === g.sub_category)?.label || g.sub_category,
+      history: ranks.genres.get(g.sub_category) || [],
+    }));
+
+    return {
+      platform: w.platform,
+      platform_name: pInfo?.name || w.platform,
+      platform_color: pInfo?.color || "#666",
+      title: w.title,
+      url: w.url || "",
+      best_rank: w.best_rank ?? null,
+      latest_rank: ranks.latest ? ranks.latest.rank : null,
+      latest_date: ranks.latest ? ranks.latest.date : null,
+      rating: w.rating ? Number(w.rating) : null,
+      review_count: w.review_count ?? null,
+      hearts: w.hearts ?? null,
+      favorites: w.favorites ?? null,
+      first_seen_date: w.first_seen_date || null,
+      last_seen_date: w.last_seen_date || null,
+      rank_history: ranks.overall,
+      genre_histories: genreHistories,
+    };
+  });
 
   // 4. 모든 플랫폼 리뷰 통합 (최대 50건)
   const titleList = worksRows.map((w) => w.title);

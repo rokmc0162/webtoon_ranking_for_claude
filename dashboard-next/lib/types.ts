@@ -30,12 +30,17 @@ export interface Genre {
 export interface RankHistory {
   date: string;
   rank: number | null;
-  genre_rank: number | null;
+}
+
+export interface GenreRankEntry {
+  sub_category: string;   // DB key (예: "ファンタジー")
+  label: string;          // 표시명 (예: "판타지")
+  history: { date: string; rank: number }[];
 }
 
 export interface RankHistoryResponse {
   overall: RankHistory[];
-  genre: string; // 장르명 (없으면 '')
+  genres: GenreRankEntry[]; // 빈도순 정렬
 }
 
 export interface PlatformStats {
@@ -148,8 +153,7 @@ export interface PlatformWorkEntry {
   first_seen_date: string | null;
   last_seen_date: string | null;
   rank_history: { date: string; rank: number }[];
-  genre_rank_history: { date: string; rank: number }[];
-  genre_label: string;
+  genre_histories: GenreRankEntry[];  // 빈도순 정렬
 }
 
 export interface ReviewWithPlatform extends Review {

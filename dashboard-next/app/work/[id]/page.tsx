@@ -151,33 +151,31 @@ export default async function UnifiedWorkPage({ params }: Props) {
     typeof worksRows, Array<{ total: number }>, Array<{ rating: number; cnt: number }>
   ];
 
-  // 장르 벌크 데이터를 플랫폼별로 정리
-  const genreMap = new Map<string, string>(); // "platform:title" → top genre key
+  // 장르 벌크 데이터를 플랫폼별로 정리 (전체 장르 저장)
+  const genreMap = new Map<string, { sub_category: string; cnt: number }[]>();
   for (const row of genreBulk) {
     const key = `${row.platform}:${row.title}`;
-    if (!genreMap.has(key)) {
-      // 첫 번째 = cnt DESC 최상위
-      const pInfo = PLATFORMS.find((p) => p.id === row.platform);
-      const overallKey = pInfo?.genres[0]?.key ?? "";
-      // overall 키는 제외하고 장르 찾기
-      if (row.sub_category !== overallKey) {
-        genreMap.set(key, row.sub_category);
-      }
+    if (!genreMap.has(key)) genreMap.set(key, []);
+    const pInfo = PLATFORMS.find((p) => p.id === row.platform);
+    const overallKey = pInfo?.genres[0]?.key ?? "";
+    if (row.sub_category !== overallKey) {
+      genreMap.get(key)!.push({ sub_category: row.sub_category, cnt: row.cnt });
     }
   }
 
-  // 랭킹 벌크 데이터를 플랫폼별로 분류
+  // 랭킹 벌크 데이터를 플랫폼별로 분류 (장르별 히스토리 수집)
   type RankEntry = { date: string; rank: number };
-  const rankMap = new Map<string, { overall: RankEntry[]; genre: RankEntry[]; latest: RankEntry | null }>();
+  const rankMap = new Map<string, { overall: RankEntry[]; genres: Map<string, RankEntry[]>; latest: RankEntry | null }>();
 
   for (const w of worksRows) {
     const pInfo = PLATFORMS.find((p) => p.id === w.platform);
     const overallKey = pInfo?.genres[0]?.key ?? "";
-    const genreKey = genreMap.get(`${w.platform}:${w.title}`) || "";
     const mapKey = `${w.platform}:${w.title}`;
+    const genreKeys = (genreMap.get(mapKey) || []).map((g) => g.sub_category);
 
     const overall: RankEntry[] = [];
-    const genre: RankEntry[] = [];
+    const genreEntries = new Map<string, RankEntry[]>();
+    for (const gk of genreKeys) genreEntries.set(gk, []);
     let latest: RankEntry | null = null;
 
     for (const r of rankBulk) {
@@ -185,18 +183,16 @@ export default async function UnifiedWorkPage({ params }: Props) {
       const sc = r.sub_category || "";
       const entry = { date: String(r.date), rank: r.rank };
 
-      // 종합 랭킹
       if (overallKey === "" ? sc === "" : sc === overallKey) {
         if (overall.length < 90) overall.push(entry);
         if (!latest) latest = entry;
       }
-      // 장르 랭킹
-      if (genreKey && sc === genreKey && genre.length < 90) {
-        genre.push(entry);
+      if (genreEntries.has(sc) && genreEntries.get(sc)!.length < 90) {
+        genreEntries.get(sc)!.push(entry);
       }
     }
 
-    rankMap.set(mapKey, { overall, genre, latest });
+    rankMap.set(mapKey, { overall, genres: genreEntries, latest });
   }
 
   // 플랫폼 데이터 조립 (일본 플랫폼 우선 정렬)
@@ -210,11 +206,15 @@ export default async function UnifiedWorkPage({ params }: Props) {
   const platforms = sortedWorksRows.map((w) => {
     const pInfo = PLATFORMS.find((p) => p.id === w.platform);
     const mapKey = `${w.platform}:${w.title}`;
-    const genreKey = genreMap.get(mapKey) || "";
-    const genreLabel = genreKey
-      ? (pInfo?.genres.find((g) => g.key === genreKey)?.label || genreKey)
-      : "";
-    const ranks = rankMap.get(mapKey) || { overall: [], genre: [], latest: null };
+    const genres = genreMap.get(mapKey) || [];
+    const ranks = rankMap.get(mapKey) || { overall: [], genres: new Map(), latest: null };
+
+    // GenreRankEntry[] 생성 (빈도순)
+    const genreHistories = genres.map((g) => ({
+      sub_category: g.sub_category,
+      label: pInfo?.genres.find((gn) => gn.key === g.sub_category)?.label || g.sub_category,
+      history: ranks.genres.get(g.sub_category) || [],
+    }));
 
     return {
       platform: w.platform,
@@ -232,8 +232,7 @@ export default async function UnifiedWorkPage({ params }: Props) {
       first_seen_date: w.first_seen_date ? String(w.first_seen_date) : null,
       last_seen_date: w.last_seen_date ? String(w.last_seen_date) : null,
       rank_history: ranks.overall,
-      genre_rank_history: ranks.genre,
-      genre_label: genreLabel,
+      genre_histories: genreHistories,
     };
   });
 
