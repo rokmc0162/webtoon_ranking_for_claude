@@ -21,11 +21,26 @@ from crawler.agents.base_agent import CrawlerAgent
 class RentaAgent(CrawlerAgent):
     """렌타 마이너치 랭킹 크롤러 에이전트"""
 
-    # 카테고리 라벨 클리닝 (JS용) — 렌타 사이트 DOM 변경으로 img alt에 "マンガ｜巻" 등 카테고리 라벨이 들어감
+    # 제목 클리닝 + 에디션 정규화 (JS용)
+    # 1. カテゴリラベル제거: "マンガ｜巻" 등 (DOM 변경 대응)
+    # 2. 에디션 접미사 제거: 【限定特典付き】【分冊版】（コミック）등
+    #    → 같은 작품의 다른 에디션을 동일 제목으로 통일
     _JS_CLEAN_TITLE = """
         function cleanTitle(raw) {
             let t = raw.replace(/^(マンガ|タテコミ|小説|ライトノベル)｜(巻|話)\\s*/u, '');
             t = t.replace(/\\s+/g, ' ').trim();
+            // 선두 에디션 마커: 【電子版限定特典付き】作品名
+            t = t.replace(/^【[^】]*(特典|限定|電子|デジタル)[^】]*】\\s*/u, '');
+            // 말미 에디션/판형 접미사 반복 제거
+            let prev;
+            do {
+                prev = t;
+                t = t.replace(/\\s*【[^】]*】\\s*$/, '').trim();
+                t = t.replace(/\\s*（コミック）\\s*$/, '').trim();
+                t = t.replace(/\\s*（ノベル）\\s*$/, '').trim();
+                t = t.replace(/\\s*［[^］]*］\\s*$/, '').trim();
+                t = t.replace(/\\s*(分冊版|連載版|単話版)\\s*$/, '').trim();
+            } while (t !== prev);
             return t;
         }
     """
