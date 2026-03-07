@@ -21,6 +21,15 @@ from crawler.agents.base_agent import CrawlerAgent
 class RentaAgent(CrawlerAgent):
     """렌타 마이너치 랭킹 크롤러 에이전트"""
 
+    # 카테고리 라벨 클리닝 (JS용) — 렌타 사이트 DOM 변경으로 img alt에 "マンガ｜巻" 등 카테고리 라벨이 들어감
+    _JS_CLEAN_TITLE = """
+        function cleanTitle(raw) {
+            let t = raw.replace(/^(マンガ|タテコミ|小説|ライトノベル)｜(巻|話)\\s*/u, '');
+            t = t.replace(/\\s+/g, ' ').trim();
+            return t;
+        }
+    """
+
     # 장르별 랭킹 매핑
     GENRE_RANKINGS = {
         '': {
@@ -110,6 +119,7 @@ class RentaAgent(CrawlerAgent):
             await page.wait_for_timeout(3000)
 
             items = await page.evaluate("""() => {
+                """ + self._JS_CLEAN_TITLE + """
                 const results = [];
                 // 검색 결과 아이템: .desclist-item 또는 유사 컨테이너
                 const containers = document.querySelectorAll('.desclist-item, .list-item_wrap .desclist-cover_link');
@@ -119,7 +129,7 @@ class RentaAgent(CrawlerAgent):
                 if (descItems.length > 0) {
                     for (const item of descItems) {
                         const titleEl = item.querySelector('.desclist-title_text, .desclist-title_link');
-                        const title = titleEl ? titleEl.textContent.trim() : '';
+                        let title = titleEl ? cleanTitle(titleEl.textContent.trim()) : '';
                         if (!title || title.length < 2) continue;
 
                         const linkEl = item.querySelector('a[href*="/frm/item/"]');
@@ -143,10 +153,11 @@ class RentaAgent(CrawlerAgent):
 
                         const alt = img.getAttribute('alt') || '';
                         let title = alt.replace(/の表紙$/, '').trim();
+                        title = cleanTitle(title);
                         if (!title || title.length < 2) {
                             const container = img.closest('li') || img.closest('div') || img.parentElement;
                             const a = container ? container.querySelector('a[href*="/frm/item/"]') : null;
-                            if (a) title = a.textContent.trim();
+                            if (a) title = cleanTitle(a.textContent.trim());
                         }
                         if (!title || title.length < 2) continue;
 
@@ -188,6 +199,7 @@ class RentaAgent(CrawlerAgent):
     async def _extract_ranking_page(self, page) -> List[Dict[str, Any]]:
         """종합 랭킹 페이지에서 DOM 추출 (img.c-contents_cover 사용)"""
         items = await page.evaluate("""() => {
+            """ + self._JS_CLEAN_TITLE + """
             const results = [];
             // renta: li.swiper-slide 안에 img.c-contents_cover
             const slides = document.querySelectorAll('li.swiper-slide, li');
@@ -201,14 +213,23 @@ class RentaAgent(CrawlerAgent):
                 if (!src || src.includes('space.gif') || src.includes('blank')) continue;
 
                 const alt = img.getAttribute('alt') || '';
-                // alt: "タイトルの表紙" → タイトル
+                // alt: "タイトルの表紙" → タイトル (旧), "マンガ｜巻" → カテゴリラベル (新)
                 let title = alt.replace(/の表紙$/, '').trim();
 
-                // 링크에서 타이틀 추출 시도
-                if (!title || title.length < 2) {
-                    const a = li.querySelector('a[href*="/frm/item/"]');
-                    if (a) title = a.textContent.trim();
+                // alt가 카테고리 라벨이면 실제 제목이 아님 → span/링크에서 추출
+                if (!title || title.length < 2 || /^(マンガ|タテコミ|小説)｜/.test(title)) {
+                    // 1순위: <span> 내 제목 텍스트
+                    const span = li.querySelector('a[href*="/frm/item/"] span');
+                    if (span) {
+                        title = span.textContent.trim();
+                    } else {
+                        // 2순위: 링크 전체 텍스트에서 클리닝
+                        const a = li.querySelector('a[href*="/frm/item/"]');
+                        if (a) title = cleanTitle(a.textContent.trim());
+                    }
                 }
+                // 최종 클리닝 (안전망)
+                title = cleanTitle(title);
                 if (!title || title.length < 2) continue;
 
                 const linkEl = li.querySelector('a[href*="/frm/item/"]');
@@ -244,6 +265,7 @@ class RentaAgent(CrawlerAgent):
     async def _extract_via_js(self, page) -> List[Dict[str, Any]]:
         """JavaScript evaluate로 직접 추출 (폴백)"""
         items = await page.evaluate("""() => {
+            """ + self._JS_CLEAN_TITLE + """
             const results = [];
             const sections = document.querySelectorAll('ul');
             let rank = 0;
@@ -254,7 +276,10 @@ class RentaAgent(CrawlerAgent):
                     const a = li.querySelector('a[href*="/frm/item/"]');
                     if (!a) return;
 
-                    const title = a.textContent.trim();
+                    // 1순위: <span> 내 제목 텍스트, 2순위: 링크 전체 텍스트 클리닝
+                    const span = a.querySelector('span');
+                    let title = span ? span.textContent.trim() : cleanTitle(a.textContent.trim());
+                    title = cleanTitle(title);
                     if (!title || title.length < 2) return;
 
                     const href = a.getAttribute('href') || '';
