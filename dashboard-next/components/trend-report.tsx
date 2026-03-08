@@ -4,11 +4,15 @@ import { useState } from "react";
 import Link from "next/link";
 import { getPlatformById } from "@/lib/constants";
 import type { TrendReport } from "@/lib/trend-report";
+import { TrendKpiRow } from "@/components/trend-report/trend-kpi-row";
+import { MiniSparkline } from "@/components/trend-report/mini-sparkline";
+import { GenreTrendSection } from "@/components/trend-report/genre-trend-section";
+import { PlatformComparisonSection } from "@/components/trend-report/platform-comparison";
 
 // ─── 리버스 브랜드 컬러 ────────────────────────────────
-const RV = "#0D3B70";       // 리버스 로고 네이비
-const RV_LIGHT = "#E8EEF5"; // 배경용 연한 톤
-const RV_MID = "#1A5296";   // 호버/보조
+const RV = "#0D3B70";
+const RV_LIGHT = "#E8EEF5";
+const RV_MID = "#1A5296";
 
 // ─── Helper Components ────────────────────────────────
 
@@ -47,9 +51,7 @@ function RankChange({ change }: { change: number }) {
   if (change > 0) {
     return (
       <span className="inline-flex items-center gap-0.5 text-emerald-500 font-bold text-xs">
-        <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor">
-          <path d="M5 1L9 6H1L5 1Z" />
-        </svg>
+        <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor"><path d="M5 1L9 6H1L5 1Z" /></svg>
         {change}
       </span>
     );
@@ -57,9 +59,7 @@ function RankChange({ change }: { change: number }) {
   if (change < 0) {
     return (
       <span className="inline-flex items-center gap-0.5 text-red-500 font-bold text-xs">
-        <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor">
-          <path d="M5 9L1 4H9L5 9Z" />
-        </svg>
+        <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor"><path d="M5 9L1 4H9L5 9Z" /></svg>
         {Math.abs(change)}
       </span>
     );
@@ -67,19 +67,10 @@ function RankChange({ change }: { change: number }) {
   return <span className="text-muted-foreground text-xs">-</span>;
 }
 
-function WorkLink({
-  unifiedWorkId,
-  children,
-}: {
-  unifiedWorkId: number | null;
-  children: React.ReactNode;
-}) {
+function WorkLink({ unifiedWorkId, children }: { unifiedWorkId: number | null; children: React.ReactNode }) {
   if (unifiedWorkId) {
     return (
-      <Link
-        href={`/work/${unifiedWorkId}`}
-        className="hover:underline hover:text-primary transition-colors"
-      >
+      <Link href={`/work/${unifiedWorkId}`} className="hover:underline hover:text-primary transition-colors">
         {children}
       </Link>
     );
@@ -91,14 +82,10 @@ function ShareBar({ pct }: { pct: number }) {
   return (
     <div className="flex items-center gap-2 flex-1">
       <div className="flex-1 h-2 bg-muted rounded-full overflow-hidden">
-        <div
-          className="h-full rounded-full transition-all duration-500"
-          style={{ width: `${Math.min(pct, 100)}%`, backgroundColor: RV }}
-        />
+        <div className="h-full rounded-full transition-all duration-500"
+          style={{ width: `${Math.min(pct, 100)}%`, backgroundColor: RV }} />
       </div>
-      <span className="text-xs text-muted-foreground w-10 text-right font-mono">
-        {pct}%
-      </span>
+      <span className="text-xs text-muted-foreground w-10 text-right font-mono">{pct}%</span>
     </div>
   );
 }
@@ -115,21 +102,13 @@ function SectionTitle({ icon, children }: { icon: string; children: React.ReactN
 function ToggleButton({ open, onClick }: { open: boolean; onClick: () => void }) {
   return (
     <div className="px-4 py-2">
-      <button
-        onClick={onClick}
+      <button onClick={onClick}
         className="group flex items-center gap-1.5 text-xs font-medium transition-colors cursor-pointer"
-        style={{ color: RV_MID }}
-      >
-        <span
-          className="inline-flex items-center justify-center w-5 h-5 rounded-full transition-colors"
-          style={{ backgroundColor: RV_LIGHT }}
-        >
-          <svg
-            width="10"
-            height="10"
-            viewBox="0 0 10 10"
-            className={`transition-transform duration-200 ${open ? "rotate-180" : ""}`}
-          >
+        style={{ color: RV_MID }}>
+        <span className="inline-flex items-center justify-center w-5 h-5 rounded-full transition-colors"
+          style={{ backgroundColor: RV_LIGHT }}>
+          <svg width="10" height="10" viewBox="0 0 10 10"
+            className={`transition-transform duration-200 ${open ? "rotate-180" : ""}`}>
             <path d="M1 3.5L5 7.5L9 3.5" stroke={RV_MID} strokeWidth="1.5" fill="none" strokeLinecap="round" />
           </svg>
         </span>
@@ -141,10 +120,8 @@ function ToggleButton({ open, onClick }: { open: boolean; onClick: () => void })
 
 function RvTag() {
   return (
-    <span
-      className="text-[9px] px-1 py-0.5 rounded font-semibold shrink-0"
-      style={{ backgroundColor: RV_LIGHT, color: RV }}
-    >
+    <span className="text-[9px] px-1 py-0.5 rounded font-semibold shrink-0"
+      style={{ backgroundColor: RV_LIGHT, color: RV }}>
       RV
     </span>
   );
@@ -157,12 +134,11 @@ function RiverseCard({ report }: { report: TrendReport }) {
   const { riverse } = report;
 
   return (
-    <div
-      className="relative overflow-hidden rounded-xl bg-card"
-      style={{ border: `1px solid ${RV}22` }}
-    >
-      {/* Header — 리버스 네이비 배경, 흰 글씨 */}
-      <div className="px-4 py-3" style={{ backgroundColor: RV }}>
+    <div className="relative overflow-hidden rounded-xl bg-card shadow-sm"
+      style={{ border: `1px solid ${RV}22` }}>
+      {/* Header — 그라데이션 */}
+      <div className="px-4 py-3"
+        style={{ background: `linear-gradient(135deg, ${RV} 0%, ${RV_MID} 100%)` }}>
         <h3 className="text-white font-bold text-sm tracking-wide">
           리버스 작품 동향
         </h3>
@@ -175,28 +151,48 @@ function RiverseCard({ report }: { report: TrendReport }) {
         </p>
       </div>
 
-      {/* Toggle */}
       <ToggleButton open={open} onClick={() => setOpen(!open)} />
 
-      {/* Expandable Detail */}
       {open && (
-        <div
-          className="px-4 pb-4 space-y-4 pt-3 animate-in fade-in slide-in-from-top-2 duration-200"
-          style={{ borderTop: `1px solid ${RV}15` }}
-        >
-          {/* TOP Ranked */}
+        <div className="px-4 pb-4 space-y-4 pt-3 animate-in fade-in slide-in-from-top-2 duration-200"
+          style={{ borderTop: `1px solid ${RV}15` }}>
+
+          {/* TOP Ranked with Sparklines */}
           {riverse.top_ranked.length > 0 && (
             <div>
               <SectionTitle icon="🏆">리버스 TOP 랭킹</SectionTitle>
-              <div className="space-y-1">
+              <div className="space-y-1.5">
                 {riverse.top_ranked.map((w, i) => (
                   <div key={`rv-top-${i}`} className="flex items-center gap-2 text-sm py-0.5">
                     <RankBadge rank={w.rank} />
                     <WorkLink unifiedWorkId={w.unified_work_id}>
-                      <span className="font-medium truncate">{w.title}</span>
+                      <span className="font-medium truncate max-w-[140px] inline-block">{w.title}</span>
                     </WorkLink>
                     <PlatformBadge platform={w.platform} />
                     <RankChange change={w.rank_change} />
+                    <MiniSparkline data={w.sparkline} color={RV} />
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* 안정 인기작 */}
+          {riverse.consistent_performers.length > 0 && (
+            <div>
+              <SectionTitle icon="🔥">안정 인기작</SectionTitle>
+              <div className="space-y-1.5">
+                {riverse.consistent_performers.map((w, i) => (
+                  <div key={`rv-cons-${i}`} className="flex items-center gap-2 text-sm py-0.5">
+                    <span className="inline-flex items-center justify-center w-7 h-5 rounded text-[10px] font-bold shrink-0 bg-orange-100 text-orange-700">
+                      {w.consecutive_days}일
+                    </span>
+                    <WorkLink unifiedWorkId={w.unified_work_id}>
+                      <span className="font-medium truncate max-w-[140px] inline-block">{w.title}</span>
+                    </WorkLink>
+                    <PlatformBadge platform={w.platform} />
+                    <span className="text-muted-foreground text-xs shrink-0 font-mono">#{w.current_rank}</span>
+                    <MiniSparkline data={w.sparkline} color="#F97316" />
                   </div>
                 ))}
               </div>
@@ -217,6 +213,27 @@ function RiverseCard({ report }: { report: TrendReport }) {
                       {w.prev_rank}→{w.curr_rank}
                     </span>
                     <span className="text-emerald-500 font-bold text-xs shrink-0">+{w.change}</span>
+                    <PlatformBadge platform={w.platform} />
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Falling */}
+          {riverse.falling.length > 0 && (
+            <div>
+              <SectionTitle icon="📉">하락 작품</SectionTitle>
+              <div className="space-y-1">
+                {riverse.falling.map((w, i) => (
+                  <div key={`rv-fall-${i}`} className="flex items-center gap-2 text-sm py-0.5">
+                    <WorkLink unifiedWorkId={w.unified_work_id}>
+                      <span className="font-medium truncate">{w.title}</span>
+                    </WorkLink>
+                    <span className="text-muted-foreground text-xs shrink-0 font-mono">
+                      {w.prev_rank}→{w.curr_rank}
+                    </span>
+                    <span className="text-red-500 font-bold text-xs shrink-0">-{w.change}</span>
                     <PlatformBadge platform={w.platform} />
                   </div>
                 ))}
@@ -301,36 +318,28 @@ function MarketCard({ report }: { report: TrendReport }) {
   const { market } = report;
 
   return (
-    <div
-      className="relative overflow-hidden rounded-xl bg-card"
-      style={{ border: `1px solid ${RV}22` }}
-    >
-      {/* Header — 흰 배경, 리버스 네이비 글씨 */}
-      <div
-        className="px-4 py-3 bg-white dark:bg-card"
-        style={{ borderBottom: `2px solid ${RV}` }}
-      >
+    <div className="relative overflow-hidden rounded-xl bg-card shadow-sm"
+      style={{ border: `1px solid ${RV}22` }}>
+      {/* Header */}
+      <div className="px-4 py-3 bg-white dark:bg-card"
+        style={{ borderBottom: `2px solid ${RV}` }}>
         <h3 className="font-bold text-sm tracking-wide" style={{ color: RV }}>
           타사 · 시장 전체 동향
         </h3>
       </div>
 
-      {/* Narrative Summary */}
       <div className="px-4 py-3" style={{ borderBottom: `1px solid ${RV}15` }}>
         <p className="text-[13px] text-foreground/85 leading-6 whitespace-pre-line">
           {market.summary || "데이터를 분석 중입니다..."}
         </p>
       </div>
 
-      {/* Toggle */}
       <ToggleButton open={open} onClick={() => setOpen(!open)} />
 
-      {/* Expandable Detail */}
       {open && (
-        <div
-          className="px-4 pb-4 space-y-4 pt-3 animate-in fade-in slide-in-from-top-2 duration-200"
-          style={{ borderTop: `1px solid ${RV}15` }}
-        >
+        <div className="px-4 pb-4 space-y-4 pt-3 animate-in fade-in slide-in-from-top-2 duration-200"
+          style={{ borderTop: `1px solid ${RV}15` }}>
+
           {/* Top 1 Per Platform */}
           {market.top1_works.length > 0 && (
             <div>
@@ -363,6 +372,28 @@ function MarketCard({ report }: { report: TrendReport }) {
                       {w.prev_rank}→{w.curr_rank}
                     </span>
                     <span className="text-emerald-500 font-bold text-xs shrink-0">+{w.change}</span>
+                    <PlatformBadge platform={w.platform} />
+                    {w.is_riverse && <RvTag />}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Falling */}
+          {market.top_falling.length > 0 && (
+            <div>
+              <SectionTitle icon="📉">하락 TOP</SectionTitle>
+              <div className="space-y-1">
+                {market.top_falling.map((w, i) => (
+                  <div key={`mk-fall-${i}`} className="flex items-center gap-2 text-sm py-0.5">
+                    <WorkLink unifiedWorkId={w.unified_work_id}>
+                      <span className="font-medium truncate">{w.title}</span>
+                    </WorkLink>
+                    <span className="text-muted-foreground text-xs shrink-0 font-mono">
+                      {w.prev_rank}→{w.curr_rank}
+                    </span>
+                    <span className="text-red-500 font-bold text-xs shrink-0">-{w.change}</span>
                     <PlatformBadge platform={w.platform} />
                     {w.is_riverse && <RvTag />}
                   </div>
@@ -440,11 +471,20 @@ export function TrendReportCard({ report }: { report?: TrendReport | null }) {
         </span>
       </div>
 
-      {/* Two cards side by side on desktop, stacked on mobile */}
+      {/* KPI Row */}
+      <TrendKpiRow kpi={report.kpi} />
+
+      {/* Two cards side by side */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
         <RiverseCard report={report} />
         <MarketCard report={report} />
       </div>
+
+      {/* Genre Trends (full width) */}
+      <GenreTrendSection genres={report.genre_trends} />
+
+      {/* Platform Comparison (full width) */}
+      <PlatformComparisonSection platforms={report.platform_comparison} />
     </div>
   );
 }
