@@ -6,8 +6,6 @@ import { getPlatformById } from "@/lib/constants";
 import type { TrendReport } from "@/lib/trend-report";
 import { TrendKpiRow } from "@/components/trend-report/trend-kpi-row";
 import { MiniSparkline } from "@/components/trend-report/mini-sparkline";
-import { GenreTrendSection } from "@/components/trend-report/genre-trend-section";
-import { PlatformComparisonSection } from "@/components/trend-report/platform-comparison";
 
 // ─── 리버스 브랜드 컬러 ────────────────────────────────
 const RV = "#0D3B70";
@@ -456,35 +454,58 @@ function MarketCard({ report }: { report: TrendReport }) {
 // ─── Main Export ────────────────────────────────
 
 export function TrendReportCard({ report }: { report?: TrendReport | null }) {
+  const [expanded, setExpanded] = useState(false);
+
   if (!report) return null;
 
   return (
     <div className="space-y-3">
-      {/* Section Header */}
-      <div className="flex items-center gap-2">
-        <h2 className="text-sm font-bold text-foreground flex items-center gap-1.5">
-          <span>📊</span>
-          JP 웹툰 트렌드 리포트
-        </h2>
-        <span className="text-[11px] text-muted-foreground">
-          {report.data_date} vs {report.prev_date}
-        </span>
+      {/* Section Header + Toggle */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <h2 className="text-sm font-bold text-foreground flex items-center gap-1.5">
+            <span>📊</span>
+            JP 웹툰 트렌드 리포트
+          </h2>
+          <span className="text-[11px] text-muted-foreground">
+            {report.data_date} vs {report.prev_date}
+          </span>
+        </div>
+        <button
+          onClick={() => setExpanded(!expanded)}
+          className="group flex items-center gap-1.5 text-xs font-medium transition-colors cursor-pointer"
+          style={{ color: RV_MID }}
+        >
+          <span
+            className="inline-flex items-center justify-center w-5 h-5 rounded-full transition-colors"
+            style={{ backgroundColor: RV_LIGHT }}
+          >
+            <svg
+              width="10"
+              height="10"
+              viewBox="0 0 10 10"
+              className={`transition-transform duration-200 ${expanded ? "rotate-180" : ""}`}
+            >
+              <path d="M1 3.5L5 7.5L9 3.5" stroke={RV_MID} strokeWidth="1.5" fill="none" strokeLinecap="round" />
+            </svg>
+          </span>
+          {expanded ? "접기" : "상세 보기"}
+        </button>
       </div>
 
-      {/* KPI Row */}
+      {/* KPI Row — 항상 보임 */}
       <TrendKpiRow kpi={report.kpi} />
 
-      {/* Two cards side by side */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-        <RiverseCard report={report} />
-        <MarketCard report={report} />
-      </div>
-
-      {/* Genre Trends (full width) */}
-      <GenreTrendSection genres={report.genre_trends} />
-
-      {/* Platform Comparison (full width) */}
-      <PlatformComparisonSection platforms={report.platform_comparison} />
+      {/* 상세 섹션 — expanded일 때만 */}
+      {expanded && (
+        <div className="space-y-3 animate-in fade-in slide-in-from-top-2 duration-200">
+          {/* Two cards side by side */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+            <RiverseCard report={report} />
+            <MarketCard report={report} />
+          </div>
+        </div>
+      )}
     </div>
   );
 }

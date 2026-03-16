@@ -7,6 +7,7 @@
 
 import json
 import os
+import re
 import time
 from pathlib import Path
 from typing import Optional
@@ -120,6 +121,69 @@ def load_title_mappings() -> dict:
     return _title_mappings
 
 
+# ─── title_kr 품질 검증 ──────────────────────────────────────
+_JP_KANA_RE = re.compile(r'[\u3041-\u3096\u30A1-\u30F6]')       # 히라가나+카타카나
+_KR_HANGUL_RE = re.compile(r'[\uAC00-\uD7AF\u3131-\u3163]')     # 한글 음절+자모
+_PHONETIC_RE = re.compile(
+    r'타치|라레|테모|세루|테오다|키타|나테이타|시테|사레|마시타|데스'
+)
+_JUNK_KEY_RE = re.compile(r'^\d+位$|^[\d.]+万$')
+_PROMO_KEYWORDS = ['巻分無料', '割引セール', '割引', '無料増', 'ポイント還元']
+
+_bad_title_kr_log: set = set()
+
+
+def validate_title_kr(title_kr: str, source_key: str = '') -> str:
+    """
+    title_kr 품질 검증. 불량이면 빈 문자열 반환.
+
+    Rules:
+    1. source_key가 비제목(순위/숫자/프로모션) → ""
+    2. value에 히라가나/카타카나 포함 → "" (미번역)
+    3. value에 한글 없고 4자 이상 → "" (번역 안 됨)
+    4. 음역 패턴 + source가 일본어 → "" (기계적 음역)
+    """
+    if not title_kr or not title_kr.strip():
+        return ""
+
+    # Rule 1: junk key
+    if source_key:
+        if _JUNK_KEY_RE.match(source_key):
+            _bad_title_kr_log.add(source_key)
+            return ""
+        if any(kw in source_key for kw in _PROMO_KEYWORDS):
+            _bad_title_kr_log.add(source_key)
+            return ""
+
+    # Rule 2: 히라가나/카타카나 in value → bad
+    if _JP_KANA_RE.search(title_kr):
+        _bad_title_kr_log.add(source_key or title_kr)
+        return ""
+
+    # Rule 3: 한글 없고 4자 이상 + source가 일본어 → bad (번역 안 된 것)
+    if (not _KR_HANGUL_RE.search(title_kr) and len(title_kr) >= 4
+            and source_key and _JP_KANA_RE.search(source_key)):
+        _bad_title_kr_log.add(source_key or title_kr)
+        return ""
+
+    # Rule 4: 음역 패턴 + 일본어 원본 → bad
+    if source_key and _JP_KANA_RE.search(source_key) and _PHONETIC_RE.search(title_kr):
+        _bad_title_kr_log.add(source_key)
+        return ""
+
+    return title_kr
+
+
+def get_bad_title_kr_report() -> set:
+    """세션 중 거부된 title_kr 키 목록"""
+    return _bad_title_kr_log.copy()
+
+
+def clear_bad_title_kr_report():
+    """거부 로그 초기화"""
+    _bad_title_kr_log.clear()
+
+
 def get_korean_title(jp_title: str) -> str:
     """
     제목 → 한국어 제목 매핑 (일본어 + 영어 지원)
@@ -140,9 +204,9 @@ def get_korean_title(jp_title: str) -> str:
     if jp_title in riverse:
         return riverse[jp_title]
 
-    # 2순위: 정확한 매칭 (일반 매핑)
+    # 2순위: 정확한 매칭 (일반 매핑) — 품질 검증 적용
     if jp_title in mappings:
-        return mappings[jp_title]
+        return validate_title_kr(mappings[jp_title], jp_title)
 
     # 3순위: 대소문자 무시 매칭 (영어 제목용)
     title_lower = jp_title.lower()
@@ -151,7 +215,7 @@ def get_korean_title(jp_title: str) -> str:
             return kr
     for key, kr in mappings.items():
         if key.lower() == title_lower:
-            return kr
+            return validate_title_kr(kr, key)
 
     # 4순위: 대괄호 제거 후 매칭 (【】, [], ())
     cleaned = jp_title
@@ -162,7 +226,7 @@ def get_korean_title(jp_title: str) -> str:
         if cleaned in riverse:
             return riverse[cleaned]
         if cleaned in mappings:
-            return mappings[cleaned]
+            return validate_title_kr(mappings[cleaned], cleaned)
 
     # 5순위: 부분 매칭 (4글자 이상)
     if len(jp_title) >= 4:
@@ -172,7 +236,7 @@ def get_korean_title(jp_title: str) -> str:
 
         for jp, kr in mappings.items():
             if len(jp) >= 4 and jp in jp_title:
-                return kr
+                return validate_title_kr(kr, jp)
 
     return ""
 
@@ -415,13 +479,21 @@ def fill_missing_title_kr():
         if not result:
             break  # credit exhaustion
 
+        # API 결과 품질 검증
+        validated = {}
+        for jp, kr in result.items():
+            if not kr:
+                continue
+            if validate_title_kr(kr, jp):
+                validated[jp] = kr
+            else:
+                print(f"  ⚠️  API 번역 불량 스킵: {jp} → {kr[:30]}")
+
         # 즉시 DB 저장
         conn = psycopg2.connect(db_url)
         cur = conn.cursor()
         w_count = r_count = 0
-        for jp, kr in result.items():
-            if not kr:
-                continue
+        for jp, kr in validated.items():
             cur.execute("UPDATE works SET title_kr=%s WHERE title=%s AND (title_kr IS NULL OR title_kr='')", (kr, jp))
             w_count += cur.rowcount
             cur.execute("UPDATE rankings SET title_kr=%s WHERE title=%s AND (title_kr IS NULL OR title_kr='')", (kr, jp))
@@ -433,16 +505,18 @@ def fill_missing_title_kr():
         with open(mappings_path, 'r', encoding='utf-8') as f:
             current_mappings = json.load(f)
         added = 0
-        for jp, kr in result.items():
-            if kr and jp not in current_mappings:
+        for jp, kr in validated.items():
+            if jp not in current_mappings:
                 current_mappings[jp] = kr
                 added += 1
         sorted_m = dict(sorted(current_mappings.items()))
         with open(mappings_path, 'w', encoding='utf-8') as f:
             json.dump(sorted_m, f, ensure_ascii=False, indent=2)
 
-        total_translated += len(result)
-        print(f"  ✅ 배치 {i//BATCH+1}: {len(result)}개 번역 / DB: w{w_count} r{r_count} / 매핑: +{added}")
+        total_translated += len(validated)
+        skipped = len(result) - len(validated)
+        skip_msg = f" / 불량 스킵: {skipped}" if skipped else ""
+        print(f"  ✅ 배치 {i//BATCH+1}: {len(validated)}개 번역 / DB: w{w_count} r{r_count} / 매핑: +{added}{skip_msg}")
 
         if i + BATCH < len(still_missing):
             time.sleep(1)
@@ -450,6 +524,16 @@ def fill_missing_title_kr():
     # 매핑 캐시 무효화
     global _title_mappings
     _title_mappings = None
+
+    # 세션 중 거부된 불량 title_kr 보고
+    bad_report = get_bad_title_kr_report()
+    if bad_report:
+        print(f"  ⚠️  불량 title_kr {len(bad_report)}개 거부됨 (매핑 불량 → 빈값 처리)")
+        for key in sorted(bad_report)[:10]:
+            print(f"     {key}")
+        if len(bad_report) > 10:
+            print(f"     ... 외 {len(bad_report) - 10}개")
+    clear_bad_title_kr_report()
 
     print(f"  📊 총 {total_translated}개 번역 완료")
 

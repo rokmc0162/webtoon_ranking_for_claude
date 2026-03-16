@@ -24,6 +24,8 @@ project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 load_dotenv(project_root / '.env')
 
+from crawler.utils import validate_title_kr
+
 DATABASE_URL = os.environ.get('SUPABASE_DB_URL', '')
 
 PLATFORMS = {
@@ -90,7 +92,7 @@ def fix_blank_korean_titles(conn):
     updated = 0
     for title in blank_titles:
         kr = _find_korean_title(title, all_maps)
-        if kr:
+        if kr and validate_title_kr(kr, title):
             cur.execute(
                 "UPDATE rankings SET title_kr = %s WHERE title = %s AND (title_kr IS NULL OR title_kr = '')",
                 (kr, title)
@@ -120,6 +122,17 @@ def verify(target_date: str = None):
     fixed_kr = fix_blank_korean_titles(conn)
     if fixed_kr > 0:
         print(f"🔧 한국어 제목 {fixed_kr}건 자동 보정됨")
+
+    # === 불량 title_kr 품질 체크 ===
+    cursor.execute("""
+        SELECT COUNT(*) FROM rankings
+        WHERE date = %s
+          AND title_kr IS NOT NULL AND title_kr != ''
+          AND title_kr ~ '[ぁ-んァ-ヶ]'
+    """, (target_date,))
+    bad_kr_count = cursor.fetchone()[0]
+    if bad_kr_count > 0:
+        print(f"⚠️  불량 title_kr (일본어 가나 포함): {bad_kr_count}건")
 
     print("=" * 70)
     print(f"📋 크롤링 결과 검증 — {target_date}")
