@@ -3,6 +3,7 @@ import { sql } from "@/lib/supabase";
 const PLATFORM_NAMES: Record<string, string> = {
   piccoma: "픽코마",
   linemanga: "라인망가",
+  linemanga_app: "라인망가(앱)",
   mechacomic: "메챠코믹",
   cmoa: "코믹시모아",
   comico: "코미코",
@@ -18,6 +19,7 @@ const PLATFORM_NAMES: Record<string, string> = {
 const PLATFORM_COLORS: Record<string, string> = {
   piccoma: "#F5C518",
   linemanga: "#06C755",
+  linemanga_app: "#00B900",
   mechacomic: "#E85298",
   cmoa: "#00A1E9",
   comico: "#FF6B35",
