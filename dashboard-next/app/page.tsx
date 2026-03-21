@@ -91,8 +91,29 @@ async function getInitialData(): Promise<InitialData | null> {
     if (prevRankings.length > 0) {
       const prevMap: Record<string, number> = {};
       for (const r of prevRankings) prevMap[r.title] = r.rank;
+
+      const newTitles = rankingRows
+        .filter((r) => !(r.title in prevMap))
+        .map((r) => r.title);
+
+      let everSeenSet = new Set<string>();
+      if (newTitles.length > 0) {
+        const everSeenRows = await sql`
+          SELECT DISTINCT title FROM rankings
+          WHERE platform = ${defaultPlatform} AND title = ANY(${newTitles})
+            AND date < ${latestDate}
+        `;
+        everSeenSet = new Set(everSeenRows.map((r) => r.title));
+      }
+
       for (const r of rankingRows) {
-        rankChanges[r.title] = r.title in prevMap ? prevMap[r.title] - r.rank : 999;
+        if (r.title in prevMap) {
+          rankChanges[r.title] = prevMap[r.title] - r.rank;
+        } else if (everSeenSet.has(r.title)) {
+          rankChanges[r.title] = 998; // 재진입
+        } else {
+          rankChanges[r.title] = 999; // NEW
+        }
       }
     }
 

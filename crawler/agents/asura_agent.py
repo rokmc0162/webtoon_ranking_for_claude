@@ -26,7 +26,7 @@ from playwright.async_api import Browser, Page
 
 logger = logging.getLogger('crawler.agents.asura')
 
-BASE_URL = 'https://asuracomic.net'
+BASE_URL = 'https://asurascans.com'
 
 
 class AsuraAgent:
@@ -184,68 +184,64 @@ class AsuraAgent:
             )
 
     async def _extract_popular_tab(self, page: Page, period: str) -> List[Dict]:
-        """현재 활성 탭패널에서 랭킹 추출
+        """현재 활성 탭에서 랭킹 추출
 
-        DOM 구조:
-        - role="tabpanel"[data-state="active"] 안에 시리즈 링크들
-        - 각 시리즈: 이미지 링크(빈 텍스트) + 텍스트 링크(제목) 쌍
-        - 텍스트가 있는 링크만 필터하여 추출
+        DOM 구조 (2026-03 기준, asurascans.com):
+        - Weekly/Monthly/All 버튼 클릭 후
+        - a[href*="/comics/"] 링크에서 제목+URL 추출
         """
         items = await page.evaluate("""() => {
             const results = [];
 
-            // 활성 탭패널 찾기
-            const panel = document.querySelector(
-                '[role="tabpanel"][data-state="active"]'
-            );
-            if (!panel) return results;
-
-            // 시리즈 링크 중 텍스트가 있는 것만
-            const links = panel.querySelectorAll('a[href*="/series/"]');
+            // /comics/ 링크에서 텍스트가 있는 것만 추출
+            const links = document.querySelectorAll('a[href*="/comics/"]');
             const seen = new Set();
             let rank = 0;
 
             for (const link of links) {
                 const href = link.getAttribute('href') || '';
-                if (!href.match(/\\/series\\/[a-z]/)) continue;
+                if (!href.match(/\\/comics\\/[a-z]/)) continue;
                 if (seen.has(href)) continue;
 
-                const text = link.innerText.trim();
-                if (!text || text.length < 2) continue;  // 이미지 링크 건너뛰기
+                // 텍스트 추출 - 줄바꿈 분리 후 첫 의미있는 줄이 제목
+                const rawText = link.innerText.trim();
+                if (!rawText || rawText.length < 2) continue;
 
-                // 부모에서 별점 찾기
-                const parent = link.parentElement;
-                const parentText = parent ? parent.textContent : '';
-                const ratingMatch = parentText.match(/(\\d+\\.\\d+)/);
+                // 제목 추출: 숫자(평점)나 "Chapter"를 제거
+                const lines = rawText.split('\\n').map(l => l.trim()).filter(l => l.length > 0);
+                let title = '';
+                for (const line of lines) {
+                    // 평점 숫자만 있는 줄이나 Chapter 줄은 건너뛰기
+                    if (/^\\d+\\.\\d+$/.test(line)) continue;
+                    if (/^Chapter/i.test(line)) continue;
+                    title = line;
+                    break;
+                }
+                if (!title || title.length < 2) continue;
+
+                // 평점 추출
+                const ratingMatch = rawText.match(/(\\d+\\.\\d+)/);
                 const rating = ratingMatch ? parseFloat(ratingMatch[1]) : null;
 
-                // 썸네일 (같은 href의 이전 형제 이미지 링크에서)
+                // 썸네일
                 let thumbUrl = '';
-                const allSiblingLinks = parent ?
-                    parent.querySelectorAll('a[href*="/series/"]') : [];
-                for (const sib of allSiblingLinks) {
-                    if (sib.getAttribute('href') === href) {
-                        const img = sib.querySelector('img');
-                        if (img) {
-                            thumbUrl = img.getAttribute('src') || '';
-                            break;
-                        }
-                    }
+                const img = link.querySelector('img');
+                if (img) {
+                    thumbUrl = img.getAttribute('src') || '';
                 }
 
                 seen.add(href);
                 rank++;
 
-                // URL 슬러그에서 전체 제목 복원 (DOM 텍스트가 잘려있을 수 있음)
-                // /series/nano-machine-8f5c823c → Nano Machine
-                const slugMatch = href.match(/\\/series\\/([a-z0-9-]+?)(?:-[0-9a-f]{6,})?\\/?$/);
-                let fullTitle = text.replace(/\\.\\.\\.$/, '').trim();
+                // URL 슬러그에서 전체 제목 복원
+                // /comics/nano-machine-7f873ca6 → Nano Machine
+                const slugMatch = href.match(/\\/comics\\/([a-z0-9-]+?)(?:-[0-9a-f]{6,})?\\/?$/);
+                let fullTitle = title.replace(/\\.\\.\\.$/, '').trim();
                 if (slugMatch && slugMatch[1]) {
                     const fromSlug = slugMatch[1]
                         .split('-')
                         .map(w => w.charAt(0).toUpperCase() + w.slice(1))
                         .join(' ');
-                    // 슬러그 제목이 DOM 제목보다 길면 슬러그 사용
                     if (fromSlug.length > fullTitle.length) {
                         fullTitle = fromSlug;
                     }
@@ -256,7 +252,7 @@ class AsuraAgent:
                     title: fullTitle,
                     rating: rating,
                     url: href.startsWith('http') ? href :
-                        'https://asuracomic.net' + href,
+                        'https://asurascans.com' + href,
                     thumbnail_url: thumbUrl,
                 });
             }
@@ -276,7 +272,7 @@ class AsuraAgent:
 
         DOM 구조:
         - 메인 그리드 카드: a[href^="series/"] (슬래시 없이 시작)
-        - 사이드바 Popular: a[href^="/series/"] (슬래시 있음)
+        - 사이드바 Popular: a[href^="/comics/"] (슬래시 있음)
         - 카드 innerText: "STATUS | TYPE | Title | Chapter N | Rating"
         - 15개/페이지
         """
@@ -309,7 +305,7 @@ class AsuraAgent:
             items = await page.evaluate("""() => {
                 const results = [];
                 // 메인 그리드 카드: href가 "series/"로 시작 (/ 없이)
-                // 사이드바는 "/series/"로 시작 → 구분 가능
+                // 사이드바는 "/comics/"로 시작 → 구분 가능
                 const allLinks = document.querySelectorAll('a');
 
                 for (const link of allLinks) {
@@ -383,7 +379,7 @@ class AsuraAgent:
                     const thumbUrl = img ?
                         (img.getAttribute('src') || '') : '';
 
-                    const fullUrl = 'https://asuracomic.net/' + href;
+                    const fullUrl = 'https://asurascans.com/' + href;
 
                     results.push({
                         title: title,

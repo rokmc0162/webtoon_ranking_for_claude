@@ -10,6 +10,7 @@
 """
 
 import asyncio
+import shutil
 import subprocess
 import xml.etree.ElementTree as ET
 import os
@@ -19,6 +20,14 @@ from typing import List, Dict, Any, Optional, Tuple
 from crawler.agents.base_agent import CrawlerAgent, AgentResult
 
 logger = logging.getLogger('crawler.agents.linemanga_app')
+
+# ADB 경로 자동 탐지
+ADB_PATH = (
+    shutil.which('adb')
+    or (os.path.isfile('/opt/homebrew/bin/adb') and '/opt/homebrew/bin/adb')
+    or (os.path.isfile('/usr/local/bin/adb') and '/usr/local/bin/adb')
+    or 'adb'
+)
 
 # 앱 패키지
 PACKAGE = 'jp.naver.linemanga.android'
@@ -70,7 +79,7 @@ class LinemangaAppAgent(CrawlerAgent):
 
     def _run_adb(self, cmd: str, timeout: int = 15) -> str:
         """ADB 명령 실행"""
-        full_cmd = f'adb shell {cmd}'
+        full_cmd = f'{ADB_PATH} shell {cmd}'
         try:
             result = subprocess.run(
                 full_cmd, shell=True, capture_output=True, text=True, timeout=timeout
@@ -87,7 +96,7 @@ class LinemangaAppAgent(CrawlerAgent):
         """ADB 디바이스 연결 확인"""
         try:
             result = subprocess.run(
-                'adb devices', shell=True, capture_output=True, text=True, timeout=10
+                f'{ADB_PATH} devices', shell=True, capture_output=True, text=True, timeout=10
             )
             lines = result.stdout.strip().split('\n')
             for line in lines[1:]:  # 첫 줄 "List of devices attached" 스킵
@@ -126,7 +135,7 @@ class LinemangaAppAgent(CrawlerAgent):
         try:
             self._run_adb('uiautomator dump /sdcard/ui.xml')
             subprocess.run(
-                f'adb pull /sdcard/ui.xml {local_path}',
+                f'{ADB_PATH} pull /sdcard/ui.xml {local_path}',
                 shell=True, capture_output=True, timeout=10
             )
             tree = ET.parse(local_path)
@@ -162,7 +171,7 @@ class LinemangaAppAgent(CrawlerAgent):
         try:
             self._run_adb('screencap -p /sdcard/screen.png')
             subprocess.run(
-                f'adb pull /sdcard/screen.png {local_path}',
+                f'{ADB_PATH} pull /sdcard/screen.png {local_path}',
                 shell=True, capture_output=True, timeout=10
             )
             from PIL import Image as PILImage
@@ -705,25 +714,28 @@ class LinemangaAppAgent(CrawlerAgent):
             self.logger.info(f"  ✅ {popup_i}개 팝업 처리 완료")
 
     def _wake_screen(self):
-        """폰 화면 깨우기 (화면 꺼져있을 때)"""
+        """폰 화면 깨우기 (화면 꺼져있거나 잠금 상태일 때)"""
         import time
-        # 화면 상태 확인
-        state = self._run_adb('dumpsys power | grep "Display Power"')
-        if 'state=OFF' in state:
+        # 화면 상태 확인 (Dozing/Asleep = 꺼짐, Awake = 켜짐)
+        state = self._run_adb('dumpsys power | grep mWakefulness')
+        if 'Awake' not in state:
             self.logger.info("  📱 화면 깨우기...")
             self._run_adb('input keyevent KEYCODE_WAKEUP')
             time.sleep(2)
-            # 잠금 해제 (스와이프 업)
-            self._swipe(540, 2000, 540, 800, 300)
+        # 잠금 해제: wm dismiss-keyguard (비밀번호/패턴 잠금도 해제)
+        self._run_adb('wm dismiss-keyguard')
+        time.sleep(1)
+        # 스와이프도 시도 (dismiss-keyguard 실패 시 폴백)
+        self._swipe(540, 2000, 540, 800, 300)
+        time.sleep(1)
+        # 한 번 더 확인 — 여전히 꺼져있으면 전원 버튼
+        state2 = self._run_adb('dumpsys power | grep mWakefulness')
+        if 'Awake' not in state2:
+            self.logger.info("  📱 전원 버튼으로 재시도...")
+            self._run_adb('input keyevent KEYCODE_POWER')
+            time.sleep(2)
+            self._run_adb('wm dismiss-keyguard')
             time.sleep(1)
-            # 한 번 더 확인 — 여전히 꺼져있으면 전원 버튼
-            state2 = self._run_adb('dumpsys power | grep "Display Power"')
-            if 'state=OFF' in state2:
-                self.logger.info("  📱 전원 버튼으로 재시도...")
-                self._run_adb('input keyevent KEYCODE_POWER')
-                time.sleep(2)
-                self._swipe(540, 2000, 540, 800, 300)
-                time.sleep(1)
 
     def _restart_app(self):
         """앱 종료 후 재실행 + 팝업 닫기"""

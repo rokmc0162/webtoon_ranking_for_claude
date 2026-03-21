@@ -94,6 +94,11 @@ class LinemangaAgent(CrawlerAgent):
             await page.wait_for_timeout(2000)
 
             items = await page.query_selector_all('.MdCMN05List ol > li')
+            # 90개만 로드된 경우 스크롤로 추가 로드
+            if len(items) < 100:
+                await page.evaluate('window.scrollTo(0, document.body.scrollHeight)')
+                await page.wait_for_timeout(2000)
+                items = await page.query_selector_all('.MdCMN05List ol > li')
             self.logger.info(f"   작품 요소 {len(items)}개 발견")
 
             for item in items[:100]:
@@ -192,6 +197,11 @@ class LinemangaAgent(CrawlerAgent):
         # 장르 페이지에서 product 링크를 가진 아이템 추출
         # .MdCMN05List 내의 a[href*="/product/"] 요소들
         product_links = await page.query_selector_all('.MdCMN05List a[href*="/product/"]')
+        # 90개만 로드된 경우 스크롤로 추가 로드
+        if len(product_links) < 100:
+            await page.evaluate('window.scrollTo(0, document.body.scrollHeight)')
+            await page.wait_for_timeout(2000)
+            product_links = await page.query_selector_all('.MdCMN05List a[href*="/product/"]')
         self.logger.info(f"   상품 링크 {len(product_links)}개 발견")
 
         rankings = []

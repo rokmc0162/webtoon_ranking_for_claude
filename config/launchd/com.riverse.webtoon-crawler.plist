@@ -8,7 +8,7 @@
     <key>ProgramArguments</key>
     <array>
         <string>/bin/bash</string>
-        <string>/Users/kimyang-il/CLAUDE/webtoon_ranking_for_claude/scripts/run_crawler.sh</string>
+        <string>/Volumes/SSD_MacMini/WEBTOON Ranking/scripts/run_crawler.sh</string>
     </array>
 
     <!-- 매일 오전 9시, 오후 3시, 오후 9시 실행 (하루 3회) -->
@@ -37,17 +37,17 @@
     <key>EnvironmentVariables</key>
     <dict>
         <key>PATH</key>
-        <string>/usr/local/bin:/usr/bin:/bin:/Users/kimyang-il/Library/Python/3.9/bin</string>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
         <key>LANG</key>
         <string>ko_KR.UTF-8</string>
     </dict>
 
     <key>WorkingDirectory</key>
-    <string>/Users/kimyang-il/CLAUDE/webtoon_ranking_for_claude</string>
+    <string>/Volumes/SSD_MacMini/WEBTOON Ranking</string>
 
     <key>StandardOutPath</key>
-    <string>/Users/kimyang-il/CLAUDE/webtoon_ranking_for_claude/logs/launchd_stdout.log</string>
+    <string>/Volumes/SSD_MacMini/WEBTOON Ranking/logs/launchd_stdout.log</string>
     <key>StandardErrorPath</key>
-    <string>/Users/kimyang-il/CLAUDE/webtoon_ranking_for_claude/logs/launchd_stderr.log</string>
+    <string>/Volumes/SSD_MacMini/WEBTOON Ranking/logs/launchd_stderr.log</string>
 </dict>
 </plist>

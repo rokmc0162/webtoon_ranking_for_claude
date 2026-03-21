@@ -8,7 +8,7 @@
     <key>ProgramArguments</key>
     <array>
         <string>/bin/bash</string>
-        <string>/Users/kimyang-il/CLAUDE/webtoon_ranking_for_claude/scripts/health_check.sh</string>
+        <string>/Volumes/SSD_MacMini/WEBTOON Ranking/scripts/health_check.sh</string>
     </array>
 
     <!-- 매일 오전 10시 헬스체크 (크롤러 실행 1시간 후) -->
@@ -21,11 +21,11 @@
     </dict>
 
     <key>WorkingDirectory</key>
-    <string>/Users/kimyang-il/CLAUDE/webtoon_ranking_for_claude</string>
+    <string>/Volumes/SSD_MacMini/WEBTOON Ranking</string>
 
     <key>StandardOutPath</key>
-    <string>/Users/kimyang-il/CLAUDE/webtoon_ranking_for_claude/logs/healthcheck_stdout.log</string>
+    <string>/Volumes/SSD_MacMini/WEBTOON Ranking/logs/healthcheck_stdout.log</string>
     <key>StandardErrorPath</key>
-    <string>/Users/kimyang-il/CLAUDE/webtoon_ranking_for_claude/logs/healthcheck_stderr.log</string>
+    <string>/Volumes/SSD_MacMini/WEBTOON Ranking/logs/healthcheck_stderr.log</string>
 </dict>
 </plist>

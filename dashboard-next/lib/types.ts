@@ -6,7 +6,7 @@ export interface Ranking {
   genre_kr: string | null;
   url: string;
   is_riverse: boolean;
-  rank_change: number; // 양수=상승, 음수=하락, 999=NEW
+  rank_change: number; // 양수=상승, 음수=하락, 999=NEW(첫등장), 998=재진입
   thumbnail_url?: string;
   thumbnail_base64?: string;
   unified_work_id?: number | null;

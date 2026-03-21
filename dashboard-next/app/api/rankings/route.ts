@@ -58,11 +58,29 @@ export async function GET(request: NextRequest) {
     for (const r of prevRankings) {
       prevMap[r.title] = r.rank;
     }
+
+    // 전날에 없는 작품들 → 과거 전체에서 한 번이라도 있었는지 확인
+    const newTitles = rankings
+      .filter((r) => !(r.title in prevMap))
+      .map((r) => r.title);
+
+    let everSeenSet = new Set<string>();
+    if (newTitles.length > 0) {
+      const everSeenRows = await sql`
+        SELECT DISTINCT title FROM rankings
+        WHERE platform = ${platform} AND title = ANY(${newTitles})
+          AND date < ${date}
+      `;
+      everSeenSet = new Set(everSeenRows.map((r) => r.title));
+    }
+
     for (const r of rankings) {
       if (r.title in prevMap) {
         rankChanges[r.title] = prevMap[r.title] - r.rank;
+      } else if (everSeenSet.has(r.title)) {
+        rankChanges[r.title] = 998; // 재진입
       } else {
-        rankChanges[r.title] = 999; // NEW
+        rankChanges[r.title] = 999; // NEW (첫 등장)
       }
     }
   }
