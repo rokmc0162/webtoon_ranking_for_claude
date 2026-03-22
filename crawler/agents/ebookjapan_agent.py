@@ -163,7 +163,7 @@ class EbookjapanAgent(CrawlerAgent):
             rankings.append({
                 'rank': actual_rank,  # 사이트의 실제 순위 번호
                 'title': title,
-                'genre': genre_key,
+                'genre': genre_key if genre_key else '総合',
                 'url': item.get('url', ''),
                 'thumbnail_url': item.get('thumbnail_url', ''),
             })

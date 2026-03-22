@@ -50,7 +50,8 @@ export default async function UnifiedWorkPage({ params }: Props) {
     `,
     sql`
       SELECT platform, title, url, best_rank, rating, review_count,
-             hearts, favorites, first_seen_date, last_seen_date
+             hearts, favorites, first_seen_date, last_seen_date,
+             thumbnail_url
       FROM works
       WHERE unified_work_id = ${numId}
       ORDER BY platform

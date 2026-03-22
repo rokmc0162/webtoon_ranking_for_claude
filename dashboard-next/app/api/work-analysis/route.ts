@@ -226,17 +226,9 @@ ${reviewSummary}
     const response = await anthropic.messages.create({
       model: "claude-haiku-4-5-20251001",
       max_tokens: 4096,
-      tools: [
-        {
-          type: "web_search_20250305" as const,
-          name: "web_search" as const,
-          max_uses: 3,
-        },
-      ],
       messages: [{ role: "user", content: prompt }],
     });
 
-    // web_search 사용 시 content 블록에 텍스트와 tool_use가 섞여 나옴
     let text = response.content
       .filter((block): block is Anthropic.TextBlock => block.type === "text")
       .map((block) => block.text)

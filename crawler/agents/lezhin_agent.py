@@ -147,7 +147,7 @@ class LezhinAgent(CrawlerAgent):
             {
                 'rank': item['rank'],
                 'title': item['title'],
-                'genre': genre_key,
+                'genre': genre_key if genre_key else '総合',
                 'url': item.get('url', ''),
                 'thumbnail_url': item.get('thumbnail_url', ''),
             }
@@ -245,7 +245,7 @@ class LezhinAgent(CrawlerAgent):
                 if i + 2 < len(lines):
                     title = lines[i + 2].strip()
                     if len(title) >= 2:
-                        genre = genre_key
+                        genre = genre_key if genre_key else '総合'
                         if i + 3 < len(lines):
                             meta = lines[i + 3].strip()
                             if '・' in meta:

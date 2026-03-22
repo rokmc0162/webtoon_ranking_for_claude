@@ -270,17 +270,18 @@ class AsuraAgent:
     async def _crawl_series_list(self, page: Page):
         """전체 시리즈를 인기순으로 수집 (페이지네이션)
 
-        DOM 구조:
-        - 메인 그리드 카드: a[href^="series/"] (슬래시 없이 시작)
-        - 사이드바 Popular: a[href^="/comics/"] (슬래시 있음)
-        - 카드 innerText: "STATUS | TYPE | Title | Chapter N | Rating"
-        - 15개/페이지
+        DOM 구조 (2026-03 기준, /browse 페이지):
+        - URL: /browse?order=popular&page=N
+        - 그리드 카드: a[href^="/comics/"] 안에 img 포함
+        - 썸네일: img.src (cdn.asurascans.com)
+        - 제목: img.alt 또는 링크 innerText에서 추출
+        - 20개/페이지
         """
         all_series = []
         page_num = 1
 
         while True:
-            url = f'{BASE_URL}/series?page={page_num}&order=popular'
+            url = f'{BASE_URL}/browse?order=popular&page={page_num}'
             loaded = False
             for attempt in range(3):
                 try:
@@ -304,68 +305,48 @@ class AsuraAgent:
 
             items = await page.evaluate("""() => {
                 const results = [];
-                // 메인 그리드 카드: href가 "series/"로 시작 (/ 없이)
-                // 사이드바는 "/comics/"로 시작 → 구분 가능
-                const allLinks = document.querySelectorAll('a');
+                const seen = new Set();
+
+                // /comics/ 링크 중 img를 포함하는 것만 (메인 그리드 카드)
+                // 사이드바 Popular 링크도 /comics/를 쓰지만 구조로 구분
+                const allLinks = document.querySelectorAll('a[href^="/comics/"]');
 
                 for (const link of allLinks) {
                     const href = link.getAttribute('href') || '';
-                    // 메인 그리드만: series/로 시작 (앞에 / 없음)
-                    if (!href.match(/^series\\/[a-z]/)) continue;
+                    if (!href.match(/^\\/comics\\/[a-z]/)) continue;
 
-                    const text = link.innerText || '';
-                    const parts = text.split('\\n').map(s => s.trim()).filter(Boolean);
-                    // parts 예: ["ONGOING", "MANHWA", "Title", "Chapter 39", "7.0"]
+                    const img = link.querySelector('img');
+                    if (!img) continue;  // 이미지 없으면 사이드바 텍스트 링크 → 스킵
 
-                    if (parts.length < 3) continue;
+                    if (seen.has(href)) continue;
+                    seen.add(href);
 
-                    // 상태 (첫 번째 파트)
-                    let status = 'Unknown';
-                    const statusMap = {
-                        'ONGOING': 'Ongoing', 'DROPPED': 'Dropped',
-                        'HIATUS': 'Hiatus', 'SEASON END': 'Season End',
-                        'COMPLETED': 'Completed',
-                    };
-                    if (statusMap[parts[0]]) {
-                        status = statusMap[parts[0]];
-                    }
+                    // 썸네일 URL
+                    const thumbUrl = img.getAttribute('src') || '';
 
-                    // 타입 (두 번째 파트)
-                    let type = 'MANHWA';
-                    if (parts.length > 1) {
-                        const t = parts[1].toUpperCase();
-                        if (t === 'MANGA' || t === 'MANGATOON') type = 'MANGA';
-                        else if (t === 'MANHUA') type = 'MANHUA';
-                        else if (t === 'MANHWA') type = 'MANHWA';
-                    }
+                    // 제목: img alt 우선, 없으면 텍스트에서 추출
+                    let title = img.getAttribute('alt') || '';
 
-                    // 제목 (상태/타입 이후, Chapter 이전)
-                    let title = '';
-                    let latestChapter = null;
-                    let rating = null;
-
-                    for (let i = 2; i < parts.length; i++) {
-                        const p = parts[i];
-                        const chMatch = p.match(/^Chapter\\s*(\\d+)/i);
-                        if (chMatch) {
-                            latestChapter = parseInt(chMatch[1]);
-                            continue;
+                    if (!title || title.length < 2) {
+                        // innerText에서 추출: 숫자(평점)/Chapter 줄 제외
+                        const rawText = link.innerText || '';
+                        const lines = rawText.split('\\n').map(l => l.trim()).filter(l => l.length > 1);
+                        for (const line of lines) {
+                            if (/^\\d+\\.\\d+$/.test(line)) continue;
+                            if (/^Chapter/i.test(line)) continue;
+                            if (/^\\d+$/.test(line)) continue;
+                            title = line;
+                            break;
                         }
-                        const rMatch = p.match(/^(\\d+\\.\\d+)$/);
-                        if (rMatch) {
-                            rating = parseFloat(rMatch[1]);
-                            continue;
-                        }
-                        if (!title) title = p;
                     }
 
                     if (!title || title.length < 2) continue;
 
-                    // DOM 제목이 잘려있을 수 있으므로 URL 슬러그에서 전체 제목 복원
-                    title = title.replace(/\\.\\.\\.$/, '').trim();
-                    const seriesSlugMatch = href.match(/series\\/([a-z0-9-]+?)(?:-[0-9a-f]{6,})?\\/?$/);
-                    if (seriesSlugMatch && seriesSlugMatch[1]) {
-                        const fromSlug = seriesSlugMatch[1]
+                    // 줄임표 제거 후 슬러그로 전체 제목 복원
+                    title = title.replace(/\\.{2,}$/, '').replace(/…$/, '').trim();
+                    const slugMatch = href.match(/\\/comics\\/([a-z0-9-]+?)(?:-[0-9a-f]{6,})?\\/?$/);
+                    if (slugMatch && slugMatch[1]) {
+                        const fromSlug = slugMatch[1]
                             .split('-')
                             .map(w => w.charAt(0).toUpperCase() + w.slice(1))
                             .join(' ');
@@ -374,19 +355,29 @@ class AsuraAgent:
                         }
                     }
 
-                    // 썸네일
-                    const img = link.querySelector('img');
-                    const thumbUrl = img ?
-                        (img.getAttribute('src') || '') : '';
+                    // 평점
+                    const rawText = link.innerText || '';
+                    const ratingMatch = rawText.match(/(\\d+\\.\\d+)/);
+                    const rating = ratingMatch ? parseFloat(ratingMatch[1]) : null;
 
-                    const fullUrl = 'https://asurascans.com/' + href;
+                    // 최신 챕터
+                    const chMatch = rawText.match(/Chapter\\s*(\\d+)/i);
+                    const latestChapter = chMatch ? parseInt(chMatch[1]) : null;
+
+                    // 상태
+                    let status = 'Unknown';
+                    for (const s of ['Ongoing', 'Completed', 'Hiatus', 'Dropped', 'Season End']) {
+                        if (rawText.includes(s)) { status = s; break; }
+                    }
+
+                    const fullUrl = 'https://asurascans.com' + href;
 
                     results.push({
                         title: title,
                         rating: rating,
                         status: status,
                         latest_chapter: latestChapter,
-                        type: type,
+                        type: 'MANHWA',
                         url: fullUrl,
                         thumbnail_url: thumbUrl,
                     });

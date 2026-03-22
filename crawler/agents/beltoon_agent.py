@@ -53,6 +53,11 @@ class BeltoonAgent(CrawlerAgent):
                         filter_tag = genre_info['filter_tag']
                         rankings = await self._crawl_filtered(page, filter_tag)
 
+                    # genre 설정: 종합은 '総合', 그 외는 genre_key
+                    genre_value = genre_key if genre_key else '総合'
+                    for item in rankings:
+                        item['genre'] = genre_value
+
                     self.genre_results[genre_key] = rankings
                     self.logger.info(f"   ✅ [{label}]: {len(rankings)}개 작품")
                 except Exception as e:
@@ -188,10 +193,11 @@ class BeltoonAgent(CrawlerAgent):
 
                 if (!title || title.length < 2) continue;
 
-                // URL
-                const linkEl = li.querySelector('a');
-                const href = linkEl ? linkEl.getAttribute('href') : '';
-                const fullUrl = href ? (href.startsWith('http') ? href : 'https://www.beltoon.jp' + href) : '';
+                // URL: beltoon은 a 태그 없음 — 이미지 URL에서 slug 추출 후 /detail/{slug} 구성
+                // 이미지 URL 패턴: .../co_thumbnail/{slug}/{timestamp}.webp
+                const slugMatch = src.match(/co_thumbnail\/([^\/]+)\//);
+                const slug = slugMatch ? slugMatch[1] : '';
+                const fullUrl = slug ? ('https://www.beltoon.jp/detail/' + slug) : '';
 
                 const thumbUrl = src.startsWith('http') ? src : (src.startsWith('/') ? 'https://www.beltoon.jp' + src : '');
 

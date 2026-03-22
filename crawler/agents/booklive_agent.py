@@ -127,7 +127,7 @@ class BookliveAgent(CrawlerAgent):
             {
                 'rank': item['rank'],
                 'title': item['title'],
-                'genre': genre_key,
+                'genre': genre_key if genre_key else '総合',
                 'url': item.get('url', ''),
                 'thumbnail_url': item.get('thumbnail_url', ''),
             }
@@ -156,6 +156,8 @@ class BookliveAgent(CrawlerAgent):
                                          '女性マンガ', 'BL', 'TL', 'ラノベ']:
                                     genre = g
                                     break
+                            if not genre:
+                                genre = '総合'
 
                         rankings.append({
                             'rank': rank,

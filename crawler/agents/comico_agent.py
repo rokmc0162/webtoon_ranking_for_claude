@@ -145,7 +145,7 @@ class ComicoAgent(CrawlerAgent):
             rankings.append({
                 'rank': item['rank'],
                 'title': item['title'],
-                'genre': genre_key,
+                'genre': genre_key if genre_key else '総合',
                 'url': item.get('url', ''),
                 'thumbnail_url': item.get('thumbnail_url', ''),
             })
@@ -174,7 +174,7 @@ class ComicoAgent(CrawlerAgent):
                         rankings.append({
                             'rank': rank,
                             'title': title,
-                            'genre': genre_key,
+                            'genre': genre_key if genre_key else '総合',
                             'url': f'https://www.comico.jp/menu/all_comic/ranking',
                             'thumbnail_url': '',
                         })
