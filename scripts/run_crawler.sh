@@ -6,6 +6,24 @@ export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:$PATH"
 export LANG=ko_KR.UTF-8
 export HOME="/Users/macmini"
 
+# SSD 마운트 대기 (재부팅 시 launchd가 SSD 마운트 전에 실행되는 경우 대비)
+SSD_MOUNT="/Volumes/SSD_MacMini"
+WAIT_LOG="/tmp/webtoon_ssd_wait.log"
+if [ ! -d "${SSD_MOUNT}" ]; then
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] SSD 마운트 대기 중: ${SSD_MOUNT}" >> "${WAIT_LOG}"
+    WAITED=0
+    while [ ! -d "${SSD_MOUNT}" ] && [ ${WAITED} -lt 300 ]; do
+        sleep 10
+        WAITED=$((WAITED + 10))
+        echo "[$(date '+%Y-%m-%d %H:%M:%S')] 대기 중... (${WAITED}초 경과)" >> "${WAIT_LOG}"
+    done
+    if [ ! -d "${SSD_MOUNT}" ]; then
+        echo "[$(date '+%Y-%m-%d %H:%M:%S')] ERROR: SSD가 300초 내에 마운트되지 않음. 크롤러 종료." >> "${WAIT_LOG}"
+        exit 78
+    fi
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] SSD 마운트 확인 완료 (${WAITED}초 대기)" >> "${WAIT_LOG}"
+fi
+
 PROJECT_DIR="/Volumes/SSD_MacMini/WEBTOON Ranking"
 LOG_DIR="${PROJECT_DIR}/logs"
 LOG_FILE="${LOG_DIR}/crawler_$(date +%Y-%m-%d).log"
