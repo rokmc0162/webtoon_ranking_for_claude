@@ -270,7 +270,7 @@ class RentaAgent(CrawlerAgent):
             {
                 'rank': item['rank'],
                 'title': item['title'],
-                'genre': '',
+                'genre': '総合',
                 'url': item.get('url', ''),
                 'thumbnail_url': item.get('thumbnail_url', ''),
             }
@@ -320,7 +320,7 @@ class RentaAgent(CrawlerAgent):
             {
                 'rank': item['rank'],
                 'title': item['title'],
-                'genre': '',
+                'genre': '総合',
                 'url': item.get('url', ''),
                 'thumbnail_url': item.get('thumbnail_url', ''),
             }
