@@ -224,7 +224,7 @@ ${reviewSummary}
 
   try {
     const response = await anthropic.messages.create({
-      model: "claude-haiku-4-5-20251001",
+      model: "claude-3-5-haiku-20241022",
       max_tokens: 4096,
       messages: [{ role: "user", content: prompt }],
     });
@@ -262,9 +262,10 @@ ${reviewSummary}
       cached: false,
     });
   } catch (error) {
-    console.error("AI analysis error:", error);
+    const msg = error instanceof Error ? error.message : String(error);
+    console.error("AI analysis error:", msg);
     return NextResponse.json(
-      { error: "AI 분석 생성 실패" },
+      { error: "AI 분석 생성 실패", detail: msg },
       { status: 500 }
     );
   }
