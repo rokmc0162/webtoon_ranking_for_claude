@@ -29,7 +29,7 @@ export function RankChange({ change }: RankChangeProps) {
   if (change === 998) {
     return (
       <motion.span
-        className="inline-block bg-violet-100 text-violet-700 px-2 py-0.5 rounded-full text-xs font-bold"
+        className="inline-block bg-violet-100 text-violet-700 px-1.5 py-0.5 rounded-full text-[10px] font-bold leading-none"
         initial={{ opacity: 0, scale: 0.8 }}
         animate={{ opacity: 1, scale: 1 }}
         transition={{ duration: 0.3 }}
