@@ -256,17 +256,7 @@ export const PLATFORMS: PlatformInfo[] = [
     sourceUrl: "https://video.unext.jp/book/ranking/comic",
     genres: [
       { key: "", label: "종합" },
-    ],
-  },
-  {
-    id: "unext_free",
-    name: "U-NEXT",
-    color: "#00BCD4",
-    logo: "/unext.png",
-    sourceUrl: "https://video.unext.jp/book/genre/freecomic",
-    badge: "FREE",
-    genres: [
-      { key: "", label: "종합" },
+      { key: "無料マンガ", label: "무료만화" },
     ],
   },
   {

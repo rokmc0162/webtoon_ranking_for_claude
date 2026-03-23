@@ -22,11 +22,12 @@ class UnextFreeAgent(CrawlerAgent):
 
     def __init__(self):
         super().__init__(
-            platform_id='unext_free',
+            platform_id='unext',
             platform_name='U-NEXT (무료만화)',
             url='https://video.unext.jp/book/genre/freecomic'
         )
         self.genre_results = {}
+        self._sub_category = '無料マンガ'  # unext 플랫폼 내 하위 카테고리
 
     async def crawl(self, browser: Browser) -> List[Dict[str, Any]]:
         """U-NEXT 무료만화 랭킹 크롤링"""
@@ -145,3 +146,17 @@ class UnextFreeAgent(CrawlerAgent):
         # 순위순 정렬
         rankings.sort(key=lambda x: x['rank'])
         return rankings
+
+    async def save(self, date: str, data: List[Dict[str, Any]]):
+        """unext 플랫폼의 無料マンガ 하위 카테고리로 저장"""
+        from crawler.db import save_rankings, backup_to_json, save_works_metadata
+
+        save_rankings(date, self.platform_id, data, sub_category=self._sub_category)
+        works_meta = [
+            {'title': item['title'], 'thumbnail_url': item.get('thumbnail_url', ''),
+             'url': item.get('url', ''), 'genre': item.get('genre', ''), 'rank': item.get('rank')}
+            for item in data if item.get('thumbnail_url')
+        ]
+        if works_meta:
+            save_works_metadata(self.platform_id, works_meta, date=date, sub_category=self._sub_category)
+        backup_to_json(date, 'unext_free', data)  # 백업은 별도 파일명
