@@ -598,7 +598,7 @@ class LinemangaAppAgent(CrawlerAgent):
 
         for scroll_i in range(max_scrolls + 1):
             if scroll_i == 0:
-                time.sleep(1.5)
+                time.sleep(2.5)  # 탭 전환 후 콘텐츠 로딩 대기
             elif no_new_count > 0:
                 time.sleep(2.5)
             else:
@@ -610,6 +610,14 @@ class LinemangaAppAgent(CrawlerAgent):
 
             items = self._parse_items_with_bounds(root)
             new_count = 0
+
+            # 첫 스크롤에서 아이템이 0이면 추가 대기 후 재시도
+            if scroll_i == 0 and len(items) == 0:
+                self.logger.debug("  첫 시도 아이템 0 → 3초 추가 대기 후 재시도")
+                time.sleep(3)
+                root = self._dump_ui(f'/tmp/lm_app_scroll_{scroll_i}_retry.xml')
+                if root is not None:
+                    items = self._parse_items_with_bounds(root)
 
             for item in items:
                 title = item['title']
@@ -879,7 +887,24 @@ class LinemangaAppAgent(CrawlerAgent):
         for _ in range(15):
             self._swipe(540, 600, 540, 1800, 200)  # 빠른 스와이프 다운
             time.sleep(0.2)
-        time.sleep(0.5)
+        time.sleep(1.0)  # 스크롤 애니메이션 완료 대기
+
+    def _is_tab_bar_visible(self, root) -> bool:
+        """탭 바가 화면에 보이는지 확인 (y=200~300 영역에 탭 텍스트 존재)"""
+        for node in root.iter('node'):
+            txt = node.get('text', '').strip()
+            if not txt:
+                continue
+            bounds = node.get('bounds', '')
+            try:
+                parts = bounds.replace('[', '').replace(']', ',').split(',')
+                y1, y2 = int(parts[1]), int(parts[3])
+                if 200 <= y1 <= 300 and 200 <= y2 <= 300:
+                    if txt in ('すべて', '恋愛', 'キャンペーン', '新着', '￥0パス'):
+                        return True
+            except:
+                pass
+        return False
 
     def _navigate_to_tab(self, tab_name: str) -> bool:
         """
@@ -891,15 +916,42 @@ class LinemangaAppAgent(CrawlerAgent):
         # 랭킹 리스트 수집 후 스크롤이 아래에 있으므로, 먼저 상단으로 복귀
         self._scroll_to_top()
 
+        # 탭 바가 보이는지 확인 (안 보이면 추가 스크롤)
+        root = self._dump_ui()
+        if root is not None and not self._is_tab_bar_visible(root):
+            self.logger.info("  탭 바 미확인 → 추가 스크롤")
+            for _ in range(10):
+                self._swipe(540, 600, 540, 1800, 200)
+                time.sleep(0.2)
+            time.sleep(1.0)
+
+        # 먼저 현재 상태에서 탭 검색 (리셋 없이)
+        root = self._dump_ui()
+        if root is not None:
+            bounds = self._find_tab_bounds(root, tab_name)
+            if bounds:
+                # 화면 가장자리에 걸쳐있으면 (보이는 너비 < 60px) 스크롤 후 재탐색
+                bx1, _, bx2, _ = bounds
+                if bx2 - bx1 < 60:
+                    self._swipe_tabs_left()
+                    time.sleep(0.8)
+                    root = self._dump_ui()
+                    if root is not None:
+                        bounds = self._find_tab_bounds(root, tab_name)
+                if bounds:
+                    self._tap_center(bounds)
+                    time.sleep(2)
+                    return True
+
         # 탭 바를 맨 왼쪽으로 리셋 (오른쪽으로 4번 스크롤)
         for _ in range(4):
             self._swipe_tabs_right()
             time.sleep(0.3)
-        time.sleep(0.5)
+        time.sleep(0.8)
 
-        # 왼쪽으로 스크롤하며 탭 찾기 (최대 8번)
-        for scroll_i in range(8):
-            time.sleep(0.8)
+        # 왼쪽으로 스크롤하며 탭 찾기 (최대 10번)
+        for scroll_i in range(10):
+            time.sleep(1.0)
             root = self._dump_ui()
             if root is None:
                 time.sleep(0.5)
@@ -907,9 +959,18 @@ class LinemangaAppAgent(CrawlerAgent):
 
             bounds = self._find_tab_bounds(root, tab_name)
             if bounds:
-                self._tap_center(bounds)
-                time.sleep(2)
-                return True
+                # 화면 가장자리에 걸쳐있으면 한번 더 스크롤
+                bx1, _, bx2, _ = bounds
+                if bx2 - bx1 < 60:
+                    self._swipe_tabs_left()
+                    time.sleep(0.8)
+                    root = self._dump_ui()
+                    if root is not None:
+                        bounds = self._find_tab_bounds(root, tab_name)
+                if bounds:
+                    self._tap_center(bounds)
+                    time.sleep(2)
+                    return True
 
             self._swipe_tabs_left()
 

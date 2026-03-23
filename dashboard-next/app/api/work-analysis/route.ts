@@ -1,10 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { sql } from "@/lib/supabase";
-import Anthropic from "@anthropic-ai/sdk";
 
-const anthropic = new Anthropic({
-  apiKey: process.env.ANTHROPIC_API_KEY || "",
-});
+let Anthropic: typeof import("@anthropic-ai/sdk").default | null = null;
+try {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  Anthropic = require("@anthropic-ai/sdk").default;
+} catch {
+  // @anthropic-ai/sdk not installed — data-based fallback only
+}
 
 const PLATFORM_NAMES: Record<string, string> = {
   piccoma: "픽코마", linemanga: "라인망가", linemanga_app: "라인망가(앱)", mechacomic: "메챠코믹",
@@ -14,6 +17,100 @@ const PLATFORM_NAMES: Record<string, string> = {
 };
 
 export const maxDuration = 60; // Vercel serverless timeout
+
+// ---------- 데이터 기반 분석 생성 (AI 없이) ----------
+function generateDataAnalysis(
+  meta: Record<string, unknown>,
+  worksRows: Record<string, unknown>[],
+  rankByPlatform: Map<string, { date: string; rank: number }[]>,
+  stats: Record<string, unknown>,
+  reviewRows: Record<string, unknown>[],
+  demographics: string,
+) {
+  const sections: string[] = [];
+
+  sections.push(`## 📊 작품 분석\n`);
+
+  // 작품 정보
+  sections.push(`### 작품 정보`);
+  sections.push(`- 제목: ${(meta.title_kr || meta.title_canonical || "미상") as string}`);
+  sections.push(`- 장르: ${(meta.genre_kr || meta.genre || "미분류") as string}`);
+  sections.push(`- 작가: ${(meta.author || "미상") as string}`);
+  if (meta.artist && meta.artist !== meta.author) sections.push(`- 작화: ${meta.artist as string}`);
+  if (meta.publisher) sections.push(`- 출판사: ${meta.publisher as string}`);
+  if (meta.tags) sections.push(`- 태그: ${meta.tags as string}`);
+  if (meta.description) {
+    const desc = (meta.description as string).slice(0, 200);
+    sections.push(`- 설명: ${desc}${(meta.description as string).length > 200 ? "..." : ""}`);
+  }
+  sections.push(`- 한국 원작: ${meta.is_riverse ? "예" : "아니오"}`);
+  sections.push(`- 플랫폼 수: ${worksRows.length}개`);
+  sections.push(``);
+
+  // 플랫폼별 랭킹 추이
+  for (const w of worksRows) {
+    const pName = PLATFORM_NAMES[w.platform as string] || w.platform as string;
+    const ranks = rankByPlatform.get(w.platform as string) || [];
+
+    sections.push(`### 랭킹 추이 — ${pName}`);
+    sections.push(`- 최고 순위: ${w.best_rank || "N/A"}위`);
+
+    if (ranks.length > 0) {
+      sections.push(`- 최근 순위: ${ranks[0].rank}위 (${ranks[0].date})`);
+
+      const rankAvg = (ranks.reduce((s, r) => s + r.rank, 0) / ranks.length).toFixed(1);
+      sections.push(`- 평균 순위: ${rankAvg}위`);
+
+      // 순위 변동
+      if (ranks.length >= 2) {
+        const latest = ranks[0].rank;
+        const oldest = ranks[ranks.length - 1].rank;
+        const diff = oldest - latest;
+        if (diff > 0) sections.push(`- 순위 변동: ▲${diff} (상승)`);
+        else if (diff < 0) sections.push(`- 순위 변동: ▼${Math.abs(diff)} (하락)`);
+        else sections.push(`- 순위 변동: — (유지)`);
+
+        const latestDate = new Date(ranks[0].date);
+        const oldestDate = new Date(ranks[ranks.length - 1].date);
+        const days = Math.round((latestDate.getTime() - oldestDate.getTime()) / (1000 * 60 * 60 * 24));
+        sections.push(`- 추적 기간: ${days}일`);
+      }
+    }
+
+    if (w.rating) sections.push(`- 평점: ${w.rating}`);
+    if (w.review_count) sections.push(`- 리뷰: ${w.review_count}건`);
+    if (w.hearts) sections.push(`- 하트: ${(w.hearts as number).toLocaleString()}`);
+    if (w.favorites) sections.push(`- 즐겨찾기: ${(w.favorites as number).toLocaleString()}`);
+    if (w.first_seen_date) sections.push(`- 첫 등장: ${w.first_seen_date}`);
+    if (w.last_seen_date) sections.push(`- 최근 확인: ${w.last_seen_date}`);
+    sections.push(``);
+
+    // 랭킹 트렌드
+    if (ranks.length > 0) {
+      sections.push(`### 랭킹 트렌드 — ${pName} (최근 14일)`);
+      ranks.slice(0, 14).forEach((r) => {
+        sections.push(`${r.date}: ${r.rank}위`);
+      });
+      sections.push(``);
+    }
+  }
+
+  // 리뷰 요약
+  const positiveCount = reviewRows.filter((r) => (r.rating as number) >= 4).length;
+  const negativeCount = reviewRows.filter((r) => r.rating && (r.rating as number) <= 2).length;
+
+  sections.push(`### 리뷰 요약`);
+  sections.push(`- 총 리뷰: ${stats.total || 0}건`);
+  sections.push(`- 평균 평점: ${stats.avg_rating || "N/A"} / 5.0`);
+  sections.push(`- 평점 분포: ★5=${stats.star5||0} ★4=${stats.star4||0} ★3=${stats.star3||0} ★2=${stats.star2||0} ★1=${stats.star1||0}`);
+  sections.push(`- 긍정(★4~5): ${positiveCount}건, 부정(★1~2): ${negativeCount}건`);
+  if (demographics) {
+    sections.push(`- 독자층: ${demographics}`);
+  }
+  sections.push(``);
+
+  return sections.join("\n");
+}
 
 export async function GET(request: NextRequest) {
   const { searchParams } = request.nextUrl;
@@ -52,9 +149,7 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  if (!process.env.ANTHROPIC_API_KEY) {
-    return NextResponse.json({ error: "ANTHROPIC_API_KEY not configured" }, { status: 500 });
-  }
+  const useAI = !!(process.env.ANTHROPIC_API_KEY && Anthropic);
 
   // 1. unified_works 마스터 정보
   const metaRows = await sql`
@@ -89,26 +184,26 @@ export async function GET(request: NextRequest) {
   // 플랫폼별로 그룹핑 (최근 14일만)
   const rankByPlatform = new Map<string, { date: string; rank: number }[]>();
   for (const r of allRankRows) {
-    const key = r.platform;
+    const key = r.platform as string;
     if (!rankByPlatform.has(key)) rankByPlatform.set(key, []);
     const arr = rankByPlatform.get(key)!;
-    if (arr.length < 14) arr.push({ date: r.date, rank: r.rank });
+    if (arr.length < 14) arr.push({ date: r.date as string, rank: r.rank as number });
   }
 
   const rankData: string[] = [];
   for (const w of worksRows) {
-    const pName = PLATFORM_NAMES[w.platform] || w.platform;
+    const pName = PLATFORM_NAMES[w.platform as string] || w.platform as string;
     const parts = [`[${pName}]`];
     if (w.best_rank) parts.push(`최고${w.best_rank}위`);
     if (w.rating) parts.push(`평점${w.rating}`);
     if (w.review_count) parts.push(`리뷰${w.review_count}건`);
-    if (w.hearts) parts.push(`하트${w.hearts.toLocaleString()}`);
-    if (w.favorites) parts.push(`즐겨찾기${w.favorites.toLocaleString()}`);
+    if (w.hearts) parts.push(`하트${(w.hearts as number).toLocaleString()}`);
+    if (w.favorites) parts.push(`즐겨찾기${(w.favorites as number).toLocaleString()}`);
     if (w.first_seen_date) parts.push(`등장${w.first_seen_date}`);
     if (w.last_seen_date) parts.push(`최근${w.last_seen_date}`);
     if (w.label) parts.push(`레이블:${w.label}`);
 
-    const rows = rankByPlatform.get(w.platform);
+    const rows = rankByPlatform.get(w.platform as string);
     if (rows && rows.length > 0) {
       const trend = rows.map((r) => `${r.date}: ${r.rank}위`).join(", ");
       parts.push(`\n  추이: ${trend}`);
@@ -128,13 +223,13 @@ export async function GET(request: NextRequest) {
   `;
 
   // 긍정/부정 리뷰 요약 (원문 노출 대신 평점별 건수 + 짧은 키워드)
-  const positiveCount = reviewRows.filter((r) => r.rating >= 4).length;
-  const negativeCount = reviewRows.filter((r) => r.rating && r.rating <= 2).length;
-  const neutralCount = reviewRows.filter((r) => r.rating === 3).length;
+  const positiveCount = reviewRows.filter((r: Record<string, unknown>) => (r.rating as number) >= 4).length;
+  const negativeCount = reviewRows.filter((r: Record<string, unknown>) => r.rating && (r.rating as number) <= 2).length;
+  const neutralCount = reviewRows.filter((r: Record<string, unknown>) => (r.rating as number) === 3).length;
   const avgBodyLen = reviewRows.length > 0
-    ? Math.round(reviewRows.reduce((s, r) => s + r.body.length, 0) / reviewRows.length)
+    ? Math.round(reviewRows.reduce((s: number, r: Record<string, unknown>) => s + (r.body as string).length, 0) / reviewRows.length)
     : 0;
-  const highLikesCount = reviewRows.filter((r) => r.likes_count >= 10).length;
+  const highLikesCount = reviewRows.filter((r: Record<string, unknown>) => (r.likes_count as number) >= 10).length;
 
   const reviewSummary = `긍정(★4~5): ${positiveCount}건, 부정(★1~2): ${negativeCount}건, 중립(★3): ${neutralCount}건
 좋아요 10+ 인기 리뷰: ${highLikesCount}건, 평균 리뷰 길이: ${avgBodyLen}자
@@ -167,13 +262,22 @@ export async function GET(request: NextRequest) {
   `;
 
   const stats = statsRows[0] || {};
-  const demographics = demoRows.map((d) => `${d.reviewer_info}: ${d.cnt}명`).join(", ");
+  const demographics = demoRows.map((d: Record<string, unknown>) => `${d.reviewer_info}: ${d.cnt}명`).join(", ");
 
-  // 검색 쿼리를 위한 제목 (일본어 + 한국어)
-  const titleJa = worksRows.length > 0 ? worksRows[0].title : meta.title_canonical;
-  const titleKr = meta.title_kr || "";
+  const dataSummary = {
+    platform_count: worksRows.length,
+    review_total: stats.total || 0,
+    avg_rating: stats.avg_rating || null,
+    demographics: demographics || null,
+  };
 
-  const prompt = `당신은 일본 디지털 만화/웹툰 시장 전문 애널리스트입니다.
+  // ---------- AI 분석 (ANTHROPIC_API_KEY가 있는 경우) ----------
+  if (useAI) {
+    // 검색 쿼리를 위한 제목 (일본어 + 한국어)
+    const titleJa = worksRows.length > 0 ? worksRows[0].title : meta.title_canonical;
+    const titleKr = (meta.title_kr || "") as string;
+
+    const prompt = `당신은 일본 디지털 만화/웹툰 시장 전문 애널리스트입니다.
 아래 정량 데이터를 근거로 분석 보고서를 작성하세요.
 
 웹 검색으로 보완할 키워드:
@@ -222,51 +326,74 @@ ${reviewSummary}
 5. 사업 전망
 확인된 사실(애니화, 드라마화 등) 위주. 추측은 최소화.`;
 
-  try {
-    const response = await anthropic.messages.create({
-      model: "claude-3-5-haiku-20241022",
-      max_tokens: 4096,
-      messages: [{ role: "user", content: prompt }],
-    });
+    try {
+      const anthropicClient = new Anthropic!({
+        apiKey: process.env.ANTHROPIC_API_KEY || "",
+      });
 
-    let text = response.content
-      .filter((block): block is Anthropic.TextBlock => block.type === "text")
-      .map((block) => block.text)
-      .join("");
+      const response = await anthropicClient.messages.create({
+        model: "claude-3-5-haiku-20241022",
+        max_tokens: 4096,
+        messages: [{ role: "user", content: prompt }],
+      });
 
-    // "1." 이전 서론 제거 (웹 검색 과정 설명 등)
-    const sectionIdx = text.indexOf("1.");
-    if (sectionIdx > 0) text = text.slice(sectionIdx);
+      type TextBlock = { type: "text"; text: string };
+      let text = response.content
+        .filter((block): block is TextBlock => block.type === "text")
+        .map((block) => block.text)
+        .join("");
 
-    const dataSummary = {
-      platform_count: worksRows.length,
-      review_total: stats.total || 0,
-      avg_rating: stats.avg_rating || null,
-      demographics: demographics || null,
-    };
+      // "1." 이전 서론 제거 (웹 검색 과정 설명 등)
+      const sectionIdx = text.indexOf("1.");
+      if (sectionIdx > 0) text = text.slice(sectionIdx);
 
-    // DB에 분석 결과 저장 (UPSERT)
-    await sql`
-      INSERT INTO work_analyses (unified_work_id, analysis, data_summary, generated_at)
-      VALUES (${id}, ${text}, ${JSON.stringify(dataSummary)}, NOW())
-      ON CONFLICT (unified_work_id)
-      DO UPDATE SET analysis = EXCLUDED.analysis,
-                    data_summary = EXCLUDED.data_summary,
-                    generated_at = NOW()
-    `;
+      // DB에 분석 결과 저장 (UPSERT)
+      await sql`
+        INSERT INTO work_analyses (unified_work_id, analysis, data_summary, generated_at)
+        VALUES (${id}, ${text}, ${JSON.stringify(dataSummary)}, NOW())
+        ON CONFLICT (unified_work_id)
+        DO UPDATE SET analysis = EXCLUDED.analysis,
+                      data_summary = EXCLUDED.data_summary,
+                      generated_at = NOW()
+      `;
 
-    return NextResponse.json({
-      analysis: text,
-      data_summary: dataSummary,
-      generated_at: new Date().toISOString(),
-      cached: false,
-    });
-  } catch (error) {
-    const msg = error instanceof Error ? error.message : String(error);
-    console.error("AI analysis error:", msg);
-    return NextResponse.json(
-      { error: "AI 분석 생성 실패", detail: msg },
-      { status: 500 }
-    );
+      return NextResponse.json({
+        analysis: text,
+        data_summary: dataSummary,
+        generated_at: new Date().toISOString(),
+        cached: false,
+      });
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      console.error("AI analysis error, falling back to data-based:", msg);
+      // AI 실패 시 데이터 기반 분석으로 폴백
+    }
   }
+
+  // ---------- 데이터 기반 분석 (AI 없이 또는 AI 실패 시) ----------
+  const text = generateDataAnalysis(
+    meta,
+    worksRows,
+    rankByPlatform,
+    stats,
+    reviewRows,
+    demographics,
+  );
+
+  // DB에 분석 결과 저장 (UPSERT)
+  await sql`
+    INSERT INTO work_analyses (unified_work_id, analysis, data_summary, generated_at)
+    VALUES (${id}, ${text}, ${JSON.stringify(dataSummary)}, NOW())
+    ON CONFLICT (unified_work_id)
+    DO UPDATE SET analysis = EXCLUDED.analysis,
+                  data_summary = EXCLUDED.data_summary,
+                  generated_at = NOW()
+  `;
+
+  return NextResponse.json({
+    analysis: text,
+    data_summary: dataSummary,
+    generated_at: new Date().toISOString(),
+    cached: false,
+  });
 }
