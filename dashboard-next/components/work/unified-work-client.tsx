@@ -8,7 +8,6 @@ const UnifiedRankChart = dynamic(
   { ssr: false, loading: () => <div className="h-64 bg-muted animate-pulse rounded-lg" /> }
 );
 import { UnifiedPlatformTable } from "@/components/work/unified-platform-table";
-import { UnifiedAiAnalysis } from "@/components/work/unified-ai-analysis";
 import { UnifiedReviews } from "@/components/work/unified-reviews";
 import { Separator } from "@/components/ui/separator";
 import type { UnifiedWorkResponse } from "@/lib/types";
@@ -50,8 +49,7 @@ export function UnifiedWorkClient({ data }: UnifiedWorkClientProps) {
           {/* 3. 플랫폼별 상세 비교 테이블 */}
           <UnifiedPlatformTable platforms={data.platforms} />
 
-          {/* 4. AI 작품 분석 */}
-          <UnifiedAiAnalysis workId={data.metadata.id} />
+          {/* 4. AI 작품 분석 — 비활성화 */}
 
           {/* 5. 통합 리뷰 (더보기 지원) */}
           <UnifiedReviews

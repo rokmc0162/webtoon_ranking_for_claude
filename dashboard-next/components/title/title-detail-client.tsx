@@ -10,7 +10,6 @@ const RankHistoryChart = dynamic(
 import { PlatformMetrics } from "@/components/title/platform-metrics";
 import { CrossPlatformTable } from "@/components/title/cross-platform-table";
 import { ReviewSectionWithLoadMore } from "@/components/title/review-section-loadmore";
-import { AiAnalysis } from "@/components/title/ai-analysis";
 import { ExternalData } from "@/components/title/external-data";
 import { Separator } from "@/components/ui/separator";
 import { getPlatformById } from "@/lib/constants";
@@ -69,12 +68,7 @@ export function TitleDetailClient({ data }: TitleDetailClientProps) {
             platformColor={platformColor}
           />
 
-          {/* 4. AI 작품 분석 */}
-          <AiAnalysis
-            platform={platform}
-            title={title}
-            platformColor={platformColor}
-          />
+          {/* 4. AI 작품 분석 — 비활성화 */}
 
           {/* 5. 크로스 플랫폼 비교 */}
           <CrossPlatformTable
