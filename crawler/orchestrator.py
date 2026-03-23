@@ -64,6 +64,9 @@ class CrawlerOrchestrator:
         from crawler.agents.lezhin_agent import LezhinAgent
         from crawler.agents.beltoon_agent import BeltoonAgent
         from crawler.agents.unext_agent import UnextAgent
+        from crawler.agents.unext_free_agent import UnextFreeAgent
+        from crawler.agents.kmanga_agent import KmangaAgent
+        from crawler.agents.handycomic_agent import HandycomicAgent
         from crawler.agents.linemanga_app_agent import LinemangaAppAgent
 
         # Create agent instances (12+1 플랫폼, ADB 에이전트 포함)
@@ -82,6 +85,9 @@ class CrawlerOrchestrator:
             LezhinAgent(),
             BeltoonAgent(),
             UnextAgent(),
+            UnextFreeAgent(),
+            KmangaAgent(),
+            HandycomicAgent(),
             # ADB 기반 (디바이스 미연결 시 자동 skip)
             LinemangaAppAgent(),
         ]
