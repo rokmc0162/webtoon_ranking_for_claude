@@ -154,7 +154,7 @@ class PiccomaAgent(CrawlerAgent):
         - 없으면 개별 작품 페이지의 JSON-LD에서 category 추출
         """
         # 1. 캐시된 장르 로드
-        genre_cache = get_works_genres('piccoma')
+        genre_cache = get_works_genres(self.platform_id)
         need_fetch = []
 
         for item in rankings:
@@ -179,9 +179,9 @@ class PiccomaAgent(CrawlerAgent):
                     genre = await self._fetch_genre_from_page(page, item['url'])
                     if genre:
                         item['genre'] = genre
-                        save_work_genre('piccoma', item['title'], genre)
+                        save_work_genre(self.platform_id, item['title'], genre)
                         genre_kr = translate_genre(genre)
-                        update_rankings_genre('piccoma', item['title'], genre, genre_kr)
+                        update_rankings_genre(self.platform_id, item['title'], genre, genre_kr)
                         fetched += 1
                 except Exception as e:
                     self.logger.warning(f"   장르 수집 실패 ({item['title']}): {e}")

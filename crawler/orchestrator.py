@@ -53,6 +53,7 @@ class CrawlerOrchestrator:
 
         # Import agents here to avoid circular imports
         from crawler.agents.piccoma_agent import PiccomaAgent
+        from crawler.agents.piccoma_manga_agent import PiccomaMangaAgent
         from crawler.agents.linemanga_agent import LinemangaAgent
         from crawler.agents.mechacomic_agent import MechacomicAgent
         from crawler.agents.cmoa_agent import CmoaAgent
@@ -65,92 +66,96 @@ class CrawlerOrchestrator:
         from crawler.agents.unext_agent import UnextAgent
         from crawler.agents.linemanga_app_agent import LinemangaAppAgent
 
-        # Initialize browser
+        # Create agent instances (12+1 플랫폼, ADB 에이전트 포함)
+        agents = [
+            # 기존 4개 플랫폼
+            PiccomaAgent(),
+            PiccomaMangaAgent(),
+            LinemangaAgent(),
+            MechacomicAgent(),
+            CmoaAgent(),
+            # 신규 8개 플랫폼
+            ComicoAgent(),
+            RentaAgent(),
+            BookliveAgent(),
+            EbookjapanAgent(),
+            LezhinAgent(),
+            BeltoonAgent(),
+            UnextAgent(),
+            # ADB 기반 (디바이스 미연결 시 자동 skip)
+            LinemangaAppAgent(),
+        ]
+
+        total = len(agents)
+
+        # Execute all agents in parallel (각 에이전트가 자체 브라우저 생성)
+        self.logger.info(f"Starting parallel execution of {total} agents...")
+
+        results = await asyncio.gather(
+            *[self._run_agent_with_browser(agent) for agent in agents],
+            return_exceptions=True
+        )
+
+        # Process results
+        results_dict = {}
+        success_count = 0
+        fail_count = 0
+
+        for result in results:
+            if isinstance(result, Exception):
+                self.logger.error(f"Unexpected error: {result}")
+                continue
+
+            results_dict[result.platform] = result
+
+            if result.success:
+                success_count += 1
+            else:
+                fail_count += 1
+
+        # Print summary
+        self.logger.info("")
+        self.logger.info("=" * 70)
+        self.logger.info("✅ 크롤링 완료")
+        self.logger.info("=" * 70)
+        self.logger.info(f"📊 성공: {success_count}/{total}개 플랫폼")
+        self.logger.info(f"❌ 실패: {fail_count}/{total}개 플랫폼")
+        self.logger.info("")
+
+        # Print detailed results
+        for platform_id, result in results_dict.items():
+            if result.success:
+                self.logger.info(f"   ✅ {platform_id}: {result.count}개 작품")
+            else:
+                self.logger.info(f"   ❌ {platform_id}: {result.error}")
+
+        # Print summary statistics
+        total_items = sum(r.count for r in results_dict.values() if r.success)
+        self.logger.info("")
+        self.logger.info(f"📚 총 {total_items}개 작품 수집")
+        self.logger.info(f"💾 데이터 저장: Supabase PostgreSQL")
+        self.logger.info(f"📦 백업: data/backup/{self.date}/")
+        self.logger.info("=" * 70)
+
+        if fail_count > 0:
+            self.logger.warning(f"⚠️  일부 플랫폼 크롤링 실패 ({success_count}/{total})")
+
+        return results_dict
+
+    async def _run_agent_with_browser(self, agent) -> AgentResult:
+        """각 에이전트를 자체 브라우저로 실행 (격리)"""
+        from crawler.agents.linemanga_app_agent import LinemangaAppAgent
+
+        # ADB 에이전트는 브라우저 불필요 — 더미 전달
+        if isinstance(agent, LinemangaAppAgent):
+            return await agent.execute(None)
+
         async with async_playwright() as p:
             browser = await p.chromium.launch(headless=True)
-
             try:
-                # Create agent instances (12+1 플랫폼, ADB 에이전트 포함)
-                agents = [
-                    # 기존 4개 플랫폼
-                    PiccomaAgent(),
-                    LinemangaAgent(),
-                    MechacomicAgent(),
-                    CmoaAgent(),
-                    # 신규 8개 플랫폼
-                    ComicoAgent(),
-                    RentaAgent(),
-                    BookliveAgent(),
-                    EbookjapanAgent(),
-                    LezhinAgent(),
-                    BeltoonAgent(),
-                    UnextAgent(),
-                    # ADB 기반 (디바이스 미연결 시 자동 skip)
-                    LinemangaAppAgent(),
-                ]
-
-                total = len(agents)
-
-                # Execute all agents in parallel
-                # return_exceptions=True prevents one failure from canceling others
-                self.logger.info(f"Starting parallel execution of {total} agents...")
-
-                results = await asyncio.gather(
-                    *[agent.execute(browser) for agent in agents],
-                    return_exceptions=True
-                )
-
-                # Process results
-                results_dict = {}
-                success_count = 0
-                fail_count = 0
-
-                for result in results:
-                    if isinstance(result, Exception):
-                        # Unexpected error (shouldn't happen with proper error handling)
-                        self.logger.error(f"Unexpected error: {result}")
-                        continue
-
-                    results_dict[result.platform] = result
-
-                    if result.success:
-                        success_count += 1
-                    else:
-                        fail_count += 1
-
-                # Print summary
-                self.logger.info("")
-                self.logger.info("=" * 70)
-                self.logger.info("✅ 크롤링 완료")
-                self.logger.info("=" * 70)
-                self.logger.info(f"📊 성공: {success_count}/{total}개 플랫폼")
-                self.logger.info(f"❌ 실패: {fail_count}/{total}개 플랫폼")
-                self.logger.info("")
-
-                # Print detailed results
-                for platform_id, result in results_dict.items():
-                    if result.success:
-                        self.logger.info(f"   ✅ {platform_id}: {result.count}개 작품")
-                    else:
-                        self.logger.info(f"   ❌ {platform_id}: {result.error}")
-
-                # Print summary statistics
-                total_items = sum(r.count for r in results_dict.values() if r.success)
-                self.logger.info("")
-                self.logger.info(f"📚 총 {total_items}개 작품 수집")
-                self.logger.info(f"💾 데이터 저장: Supabase PostgreSQL")
-                self.logger.info(f"📦 백업: data/backup/{self.date}/")
-                self.logger.info("=" * 70)
-
-                if fail_count > 0:
-                    self.logger.warning(f"⚠️  일부 플랫폼 크롤링 실패 ({success_count}/{total})")
-
-                return results_dict
-
+                return await agent.execute(browser)
             finally:
-                # Always close browser
                 await browser.close()
-                self.logger.debug("Browser closed")
 
 
 async def main():
