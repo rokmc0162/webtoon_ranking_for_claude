@@ -51,7 +51,7 @@ class PiccomaAgent(CrawlerAgent):
         all_rankings = []
 
         try:
-            for genre_key, genre_info in PiccomaAgent.GENRE_RANKINGS.items():
+            for genre_key, genre_info in self.GENRE_RANKINGS.items():
                 url = f"https://piccoma.com{genre_info['path']}"
                 label = genre_info['name']
 
