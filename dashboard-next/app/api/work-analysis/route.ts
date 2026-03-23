@@ -337,10 +337,10 @@ ${reviewSummary}
         messages: [{ role: "user", content: prompt }],
       });
 
-      type TextBlock = { type: "text"; text: string };
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       let text = response.content
-        .filter((block): block is TextBlock => block.type === "text")
-        .map((block) => block.text)
+        .filter((block: any) => block.type === "text")
+        .map((block: any) => block.text)
         .join("");
 
       // "1." 이전 서론 제거 (웹 검색 과정 설명 등)
