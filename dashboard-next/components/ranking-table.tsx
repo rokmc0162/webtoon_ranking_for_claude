@@ -61,11 +61,17 @@ function Thumbnail({
   );
 }
 
+type SortKey = "rank" | "publisher";
+type SortDir = "asc" | "desc";
+
 export function RankingTable({
   rankings,
   platformColor,
   platform,
 }: RankingTableProps) {
+  const [sortKey, setSortKey] = useState<SortKey>("rank");
+  const [sortDir, setSortDir] = useState<SortDir>("asc");
+
   if (rankings.length === 0) {
     return (
       <div className="text-center py-12 text-muted-foreground">
@@ -73,6 +79,29 @@ export function RankingTable({
       </div>
     );
   }
+
+  const sorted = [...rankings].sort((a, b) => {
+    if (sortKey === "rank") {
+      return sortDir === "asc" ? a.rank - b.rank : b.rank - a.rank;
+    }
+    // publisher sort
+    const pa = a.publisher || "";
+    const pb = b.publisher || "";
+    if (!pa && !pb) return a.rank - b.rank;
+    if (!pa) return 1;
+    if (!pb) return -1;
+    const cmp = pa.localeCompare(pb, "ja");
+    return sortDir === "asc" ? cmp || a.rank - b.rank : -cmp || a.rank - b.rank;
+  });
+
+  const toggleSort = (key: SortKey) => {
+    if (sortKey === key) {
+      setSortDir(sortDir === "asc" ? "desc" : "asc");
+    } else {
+      setSortKey(key);
+      setSortDir("asc");
+    }
+  };
 
   return (
     <div className="w-full">
@@ -99,7 +128,20 @@ export function RankingTable({
               변동
             </th>
             <th className="h-10 px-2 text-left font-medium text-foreground">
-              작품명
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => toggleSort("rank")}
+                  className={`hover:underline ${sortKey === "rank" ? "text-foreground" : "text-muted-foreground"}`}
+                >
+                  작품명 {sortKey === "rank" ? (sortDir === "asc" ? "↑" : "↓") : ""}
+                </button>
+                <button
+                  onClick={() => toggleSort("publisher")}
+                  className={`text-xs px-1.5 py-0.5 rounded ${sortKey === "publisher" ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:bg-muted/80"}`}
+                >
+                  제작사순 {sortKey === "publisher" ? (sortDir === "asc" ? "↑" : "↓") : ""}
+                </button>
+              </div>
             </th>
             <th
               style={{ width: 180 }}
@@ -120,7 +162,7 @@ export function RankingTable({
           initial="hidden"
           animate="show"
         >
-          {rankings.map((r) => (
+          {sorted.map((r) => (
             <motion.tr
               key={r.rank}
               variants={tableRowVariant}
@@ -165,6 +207,14 @@ export function RankingTable({
                     </a>
                   )}
                 </div>
+                {/* 제작사 */}
+                {r.publisher && (
+                  <div className="mt-0.5 truncate">
+                    <span className="text-[11px] text-muted-foreground/70">
+                      {r.publisher}
+                    </span>
+                  </div>
+                )}
                 {/* 모바일: 한국어 제목 + 장르 인라인 */}
                 <div className="md:hidden mt-0.5 truncate">
                   {r.title_kr && (

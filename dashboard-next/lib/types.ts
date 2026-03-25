@@ -10,6 +10,7 @@ export interface Ranking {
   thumbnail_url?: string;
   thumbnail_base64?: string;
   unified_work_id?: number | null;
+  publisher?: string | null;
 }
 
 export interface PlatformInfo {

@@ -43,7 +43,7 @@ export async function GET(request: NextRequest) {
       : Promise.resolve([]),
     titles.length > 0
       ? sql`
-          SELECT title, thumbnail_url, unified_work_id
+          SELECT title, thumbnail_url, unified_work_id, publisher
           FROM works
           WHERE platform = ${platform}
             AND title = ANY(${titles})
@@ -88,12 +88,16 @@ export async function GET(request: NextRequest) {
   // thumbnails + unified_work_id map
   const thumbnails: Record<string, string> = {};
   const unifiedIds: Record<string, number> = {};
+  const publishers: Record<string, string> = {};
   for (const t of thumbRows) {
     if (t.thumbnail_url) {
       thumbnails[t.title] = t.thumbnail_url;
     }
     if (t.unified_work_id) {
       unifiedIds[t.title] = t.unified_work_id;
+    }
+    if (t.publisher) {
+      publishers[t.title] = t.publisher;
     }
   }
 
@@ -145,6 +149,7 @@ export async function GET(request: NextRequest) {
     rank_change: rankChanges[r.title] ?? 0,
     thumbnail_url: thumbnails[r.title] || null,
     unified_work_id: unifiedIds[r.title] || null,
+    publisher: publishers[r.title] || null,
   }));
 
   return NextResponse.json(result, {
