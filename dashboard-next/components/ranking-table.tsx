@@ -128,26 +128,18 @@ export function RankingTable({
               변동
             </th>
             <th className="h-10 px-2 text-left font-medium text-foreground">
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => toggleSort("rank")}
-                  className={`hover:underline ${sortKey === "rank" ? "text-foreground" : "text-muted-foreground"}`}
-                >
-                  작품명 {sortKey === "rank" ? (sortDir === "asc" ? "↑" : "↓") : ""}
-                </button>
-                <button
-                  onClick={() => toggleSort("publisher")}
-                  className={`text-xs px-1.5 py-0.5 rounded ${sortKey === "publisher" ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:bg-muted/80"}`}
-                >
-                  제작사순 {sortKey === "publisher" ? (sortDir === "asc" ? "↑" : "↓") : ""}
-                </button>
-              </div>
+              작품명
             </th>
             <th
               style={{ width: 180 }}
               className="h-10 px-2 text-left font-medium text-foreground hidden md:table-cell"
             >
-              한국어
+              <button
+                onClick={() => toggleSort("publisher")}
+                className={`hover:underline ${sortKey === "publisher" ? "text-foreground" : ""}`}
+              >
+                제작사 {sortKey === "publisher" ? (sortDir === "asc" ? "↑" : "↓") : ""}
+              </button>
             </th>
             <th
               style={{ width: 100 }}
@@ -183,7 +175,7 @@ export function RankingTable({
                 <RankChange change={r.rank_change} />
               </td>
 
-              {/* 작품명 */}
+              {/* 작품명 + 한국어 제목 */}
               <td className="py-2 px-2 align-middle overflow-hidden">
                 <div className="truncate">
                   <Link
@@ -207,32 +199,32 @@ export function RankingTable({
                     </a>
                   )}
                 </div>
-                {/* 제작사 */}
-                {r.publisher && (
+                {/* 한국어 제목 (작은 글씨) - 전 플랫폼 동일 */}
+                {r.title_kr && (
                   <div className="mt-0.5 truncate">
-                    <span className="text-[11px] text-muted-foreground/70">
-                      {r.publisher}
-                    </span>
-                  </div>
-                )}
-                {/* 모바일: 한국어 제목 + 장르 인라인 */}
-                <div className="md:hidden mt-0.5 truncate">
-                  {r.title_kr && (
                     <span className="text-xs text-muted-foreground">
                       {r.title_kr}
                     </span>
-                  )}
+                  </div>
+                )}
+                {/* 모바일: 장르 + 제작사 인라인 */}
+                <div className="md:hidden mt-0.5 truncate">
                   {(r.genre_kr || r.genre) && (
-                    <span className="ml-2 text-[10px] bg-muted text-muted-foreground px-1.5 py-0.5 rounded-full">
+                    <span className="text-[10px] bg-muted text-muted-foreground px-1.5 py-0.5 rounded-full">
                       {r.genre_kr || r.genre}
+                    </span>
+                  )}
+                  {r.publisher && (
+                    <span className="ml-1 text-[10px] text-muted-foreground/70">
+                      {r.publisher}
                     </span>
                   )}
                 </div>
               </td>
 
-              {/* 한국어 */}
+              {/* 제작사 */}
               <td className="py-2 px-2 align-middle text-muted-foreground text-sm hidden md:table-cell overflow-hidden">
-                <div className="truncate">{r.title_kr || ""}</div>
+                <div className="truncate">{r.publisher || ""}</div>
               </td>
 
               {/* 장르 */}
