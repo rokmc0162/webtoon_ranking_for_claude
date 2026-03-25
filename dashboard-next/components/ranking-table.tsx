@@ -71,6 +71,7 @@ export function RankingTable({
 }: RankingTableProps) {
   const [sortKey, setSortKey] = useState<SortKey>("rank");
   const [sortDir, setSortDir] = useState<SortDir>("asc");
+  const [publisherFilter, setPublisherFilter] = useState<string>("");
 
   if (rankings.length === 0) {
     return (
@@ -80,7 +81,22 @@ export function RankingTable({
     );
   }
 
-  const sorted = [...rankings].sort((a, b) => {
+  // 제작사 목록 (작품 수 순)
+  const publisherCounts: Record<string, number> = {};
+  for (const r of rankings) {
+    if (r.publisher) {
+      publisherCounts[r.publisher] = (publisherCounts[r.publisher] || 0) + 1;
+    }
+  }
+  const publisherOptions = Object.entries(publisherCounts)
+    .sort((a, b) => b[1] - a[1])
+    .map(([name, count]) => ({ name, count }));
+
+  const filtered = publisherFilter
+    ? rankings.filter((r) => r.publisher === publisherFilter)
+    : rankings;
+
+  const sorted = [...filtered].sort((a, b) => {
     if (sortKey === "rank") {
       return sortDir === "asc" ? a.rank - b.rank : b.rank - a.rank;
     }
@@ -105,6 +121,31 @@ export function RankingTable({
 
   return (
     <div className="w-full">
+      {/* 제작사 필터 */}
+      {publisherOptions.length > 0 && (
+        <div className="flex items-center gap-2 mb-3 px-2">
+          <select
+            value={publisherFilter}
+            onChange={(e) => setPublisherFilter(e.target.value)}
+            className="text-sm border rounded-md px-2 py-1.5 bg-background text-foreground"
+          >
+            <option value="">전체 제작사 ({rankings.length})</option>
+            {publisherOptions.map(({ name, count }) => (
+              <option key={name} value={name}>
+                {name} ({count})
+              </option>
+            ))}
+          </select>
+          {publisherFilter && (
+            <button
+              onClick={() => setPublisherFilter("")}
+              className="text-xs text-muted-foreground hover:text-foreground px-2 py-1 rounded bg-muted"
+            >
+              초기화
+            </button>
+          )}
+        </div>
+      )}
       <table
         className="w-full text-sm border-collapse"
         style={{ tableLayout: "fixed" }}
