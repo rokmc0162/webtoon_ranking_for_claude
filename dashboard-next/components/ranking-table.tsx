@@ -121,31 +121,6 @@ export function RankingTable({
 
   return (
     <div className="w-full">
-      {/* 제작사 필터 */}
-      {publisherOptions.length > 0 && (
-        <div className="flex items-center gap-2 mb-3 px-2">
-          <select
-            value={publisherFilter}
-            onChange={(e) => setPublisherFilter(e.target.value)}
-            className="text-sm border rounded-md px-2 py-1.5 bg-background text-foreground"
-          >
-            <option value="">전체 제작사 ({rankings.length})</option>
-            {publisherOptions.map(({ name, count }) => (
-              <option key={name} value={name}>
-                {name} ({count})
-              </option>
-            ))}
-          </select>
-          {publisherFilter && (
-            <button
-              onClick={() => setPublisherFilter("")}
-              className="text-xs text-muted-foreground hover:text-foreground px-2 py-1 rounded bg-muted"
-            >
-              초기화
-            </button>
-          )}
-        </div>
-      )}
       <table
         className="w-full text-sm border-collapse"
         style={{ tableLayout: "fixed" }}
@@ -175,12 +150,18 @@ export function RankingTable({
               style={{ width: 180 }}
               className="h-10 px-2 text-left font-medium text-foreground hidden md:table-cell"
             >
-              <button
-                onClick={() => toggleSort("publisher")}
-                className={`hover:underline ${sortKey === "publisher" ? "text-foreground" : ""}`}
+              <select
+                value={publisherFilter}
+                onChange={(e) => setPublisherFilter(e.target.value)}
+                className="text-xs font-medium bg-transparent border-none outline-none cursor-pointer text-foreground w-full truncate"
               >
-                제작사 {sortKey === "publisher" ? (sortDir === "asc" ? "↑" : "↓") : ""}
-              </button>
+                <option value="">제작사</option>
+                {publisherOptions.map(({ name, count }) => (
+                  <option key={name} value={name}>
+                    {name} ({count})
+                  </option>
+                ))}
+              </select>
             </th>
             <th
               style={{ width: 100 }}
