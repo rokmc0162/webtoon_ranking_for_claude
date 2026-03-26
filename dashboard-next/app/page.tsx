@@ -10,6 +10,7 @@ export const revalidate = 300;
 type InitialData = {
   dates: string[];
   latestDate: string;
+  lastUpdated: Record<string, string>;
   stats: Record<string, PlatformStats>;
   riverseCounts: Record<string, number>;
   rankings: Ranking[];
@@ -20,12 +21,19 @@ async function getInitialData(): Promise<InitialData | null> {
   try {
     const defaultPlatform = "piccoma";
 
-    const dateRows = await sql`SELECT DISTINCT date::text as date FROM rankings ORDER BY date DESC`;
+    const dateRows = await sql`
+      SELECT date::text as date, MAX(created_at) as last_updated
+      FROM rankings GROUP BY date ORDER BY date DESC
+    `;
     const dates: string[] = dateRows.map((r) => String(r.date));
+    const lastUpdated: Record<string, string> = {};
+    for (const r of dateRows) {
+      lastUpdated[r.date] = r.last_updated;
+    }
     const latestDate = dates[0] || "";
 
     if (!latestDate) {
-      return { dates, latestDate, stats: {}, riverseCounts: {}, rankings: [], defaultPlatform };
+      return { dates, latestDate, lastUpdated, stats: {}, riverseCounts: {}, rankings: [], defaultPlatform };
     }
 
     const overallKeys = [...new Set(PLATFORMS.map((p) => p.genres[0]?.key ?? ""))];
@@ -140,7 +148,7 @@ async function getInitialData(): Promise<InitialData | null> {
       publisher: publishers[r.title] || null,
     }));
 
-    return { dates, latestDate, stats, riverseCounts, rankings, defaultPlatform };
+    return { dates, latestDate, lastUpdated, stats, riverseCounts, rankings, defaultPlatform };
   } catch {
     // 빌드 시 DB 연결 불가 → null 반환 → 빌드 통과 → 런타임에 ISR 재생성
     return null;
@@ -165,6 +173,7 @@ export default async function Home() {
     <DashboardClient
       initialDates={data.dates}
       initialDate={data.latestDate}
+      initialLastUpdated={data.lastUpdated}
       initialStats={data.stats}
       initialRiverseCounts={data.riverseCounts}
       initialRankings={data.rankings}

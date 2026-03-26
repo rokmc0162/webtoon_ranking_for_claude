@@ -19,6 +19,7 @@ import { TrendReportCard } from "@/components/trend-report";
 interface DashboardClientProps {
   initialDates: string[];
   initialDate: string;
+  initialLastUpdated?: Record<string, string>;
   initialStats: Record<string, PlatformStats>;
   initialRiverseCounts: Record<string, number>;
   initialRankings: Ranking[];
@@ -29,6 +30,7 @@ interface DashboardClientProps {
 export function DashboardClient({
   initialDates,
   initialDate,
+  initialLastUpdated,
   initialStats,
   initialRiverseCounts,
   initialRankings,
@@ -119,11 +121,18 @@ export function DashboardClient({
         </div>
 
         <div className="anim-section flex items-center justify-between mt-4 mb-3" style={{ animationDelay: "120ms" }}>
-          <DateSelector
-            dates={dates}
-            selected={selectedDate}
-            onSelect={setSelectedDate}
-          />
+          <div className="flex items-center gap-3">
+            <DateSelector
+              dates={dates}
+              selected={selectedDate}
+              onSelect={setSelectedDate}
+            />
+            {initialLastUpdated?.[selectedDate] && (
+              <span className="text-[11px] text-muted-foreground">
+                최종 수집: {new Date(initialLastUpdated[selectedDate]).toLocaleString("ko-KR", { timeZone: "Asia/Tokyo", month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}
+              </span>
+            )}
+          </div>
           {sourceUrl && (
             <a
               href={sourceUrl}
